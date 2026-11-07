@@ -1,6 +1,6 @@
 //! HTTP/1.1 request heads (RFC 9112) and responses, without I/O. Requests are limited to an 8 KiB
-//! head, 32 header fields and a 16 KiB `Content-Length` body; `Transfer-Encoding` is not supported.
-//! Every response carries the same security headers.
+//! head, 32 header fields and a 16 KiB body (256 KiB for compose submissions).
+//! Transfer-Encoding is not supported.
 
 use std::borrow::Cow;
 
@@ -8,6 +8,7 @@ pub const MAX_HEAD: usize = 8 * 1024;
 pub const MAX_HEADERS: usize = 32;
 pub const MAX_BODY: usize = 16 * 1024;
 
+pub(super) const COMPOSE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const CSP: &str = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,7 +81,7 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(Request, usize)>, u16> {
     }
     let content_length = match lengths.as_slice() {
         [] => None,
-        [v] => Some(parse_length(v)?),
+        [v] => Some(parse_length(v, if req.method == Some("POST") && path == "/compose" { 256 * 1024 } else { MAX_BODY })?),
         _ => return Err(400),
     };
     let method = match req.method.unwrap_or_default() {
@@ -109,14 +110,14 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(Request, usize)>, u16> {
     Ok(Some((request, len)))
 }
 
-/// Decimal digits only; 400 if malformed, 413 if over `MAX_BODY` (however many digits).
-fn parse_length(v: &[u8]) -> Result<usize, u16> {
+/// Decimal digits only; 400 if malformed, 413 if over the route limit (however many digits).
+fn parse_length(v: &[u8], limit: usize) -> Result<usize, u16> {
     if v.is_empty() || !v.iter().all(u8::is_ascii_digit) {
         return Err(400);
     }
     v.iter()
         .try_fold(0usize, |n, d| n.checked_mul(10)?.checked_add(usize::from(d - b'0')))
-        .filter(|&n| n <= MAX_BODY)
+        .filter(|&n| n <= limit)
         .ok_or(413)
 }
 
@@ -211,7 +212,7 @@ impl Response {
     pub fn encode(&self, head_only: bool, close: bool, date: &str) -> Vec<u8> {
         let mut out = format!(
             "HTTP/1.1 {} {}\r\nDate: {date}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: {}\r\n\
-             Content-Security-Policy: {CSP}\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: same-origin\r\n\
+             X-Content-Type-Options: nosniff\r\nReferrer-Policy: same-origin\r\n\
              X-Frame-Options: DENY\r\n",
             self.status,
             reason(self.status),
@@ -219,6 +220,11 @@ impl Response {
             self.body.len(),
             self.cache_control,
         );
+        if !self.headers.iter().any(|(name, _)| *name == "Content-Security-Policy") {
+            out.push_str("Content-Security-Policy: ");
+            out.push_str(CSP);
+            out.push_str("\r\n");
+        }
         if self.status == 405 {
             out.push_str("Allow: GET, HEAD, POST\r\n");
         }

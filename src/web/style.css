@@ -248,3 +248,9 @@ main input[type="number"] { max-width: 12rem; }
 main select { max-width: 26rem; }
 .messages a { border-radius: .25rem; }
 button:hover, .primary:hover { filter: brightness(.94); }
+
+.compose-tools { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
+.compose-tools button { padding: .35rem .65rem; }
+#editor { min-height: 12rem; padding: .75rem; border: 1px solid var(--muted); border-radius: .375rem; overflow-wrap: anywhere; overflow-x: auto; }
+#rich-compose { margin-bottom: 1rem; }
+#compose-status:not(:empty) { display: block; margin-top: .5rem; }

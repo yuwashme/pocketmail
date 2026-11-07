@@ -9,7 +9,7 @@ use crate::store::StoreError;
 
 // This listener has its own sessions. The allowlist also applies to decoded paths.
 pub(super) async fn route(app: &App, req: &Request, body: &[u8], ip: IpAddr) -> Response {
-    if !matches!(req.path.as_str(), "/" | "/inbox" | "/outbox" | "/message" | "/compose" | "/login" | "/logout" | "/me" | "/me/password")
+    if !matches!(req.path.as_str(), "/" | "/inbox" | "/outbox" | "/message" | "/compose" | "/compose.js" | "/login" | "/logout" | "/me" | "/me/password")
         && req.path != super::CSS_PATH {
         return Response::error(404);
     }

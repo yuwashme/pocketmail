@@ -205,6 +205,10 @@ async fn route(app: &pages::App, req: &Request, body: &[u8], ip: IpAddr) -> Resp
         return Response::error(415);
     }
     match (req.method, req.path.as_str()) {
+        (Method::Get | Method::Head, "/compose.js") => Response {
+            status: 200, content_type: "text/javascript; charset=utf-8", cache_control: "no-cache",
+            body: Cow::Borrowed(include_bytes!("compose.js")), headers: Vec::new(),
+        },
         (Method::Get | Method::Head, CSS_PATH) => Response {
             status: 200,
             content_type: "text/css; charset=utf-8",

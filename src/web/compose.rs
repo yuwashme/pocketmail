@@ -54,14 +54,16 @@ pub(super) async fn handle(app: &App, req: &Request, body: &[u8]) -> Result<Resp
                 r => r?,
             }
         } else { Reply::default() };
-        return Ok(Response::html(200, Html::page(if uid.is_some() { "Reply" } else { "Write a message" }, Some(&me.session.csrf), None, |h| {
+        let mut page = Response::html(200, Html::page(if uid.is_some() { "Reply" } else { "Write a message" }, Some(&me.session.csrf), None, |h| {
             h.raw("<p><a href=\"/inbox\">Inbox</a></p><form action=\"/compose\" method=\"post\">").csrf(&me.session.csrf);
             if let Some(n) = uid { h.raw("<input type=\"hidden\" name=\"reply\" value=\"").text(&n.to_string()).raw("\">"); }
             h
                 .raw("<label for=\"to\">To</label><input type=\"email\" id=\"to\" name=\"to\" value=\"").text(&draft.to).raw("\" required>")
                 .raw("<label for=\"subject\">Subject</label><input id=\"subject\" name=\"subject\" type=\"text\" value=\"").text(&draft.subject).raw("\" maxlength=\"160\">")
-                .raw("<label for=\"body\">Message</label><textarea id=\"body\" name=\"body\" rows=\"10\" required></textarea><button>Send</button></form>");
-        })));
+                .raw(include_str!("compose.html"));
+        }));
+        page.headers.push(("Content-Security-Policy", super::http::COMPOSE_CSP.into()));
+        return Ok(page);
     }
     let (me, form) = match signed_in_post(app, req, body).await? { Ok(v) => v, Err(r) => return Ok(r) };
     let account = me.account.id;
@@ -90,7 +92,8 @@ pub(super) async fn handle(app: &App, req: &Request, body: &[u8]) -> Result<Resp
     if !chunk.is_empty() { words.push(format!("=?UTF-8?B?{}?=", STANDARD.encode(chunk))); }
     let plain_subject = if subject.is_empty() { "(No subject)".to_owned() } else { subject.to_owned() };
     let subject = words.join("\r\n ");
-    let body = STANDARD.encode(body.replace("\r\n", "\n").replace('\n', "\r\n"));
+    let body = body.to_owned();
+    let html = value(&form, "html").to_owned();
     app.blocking(move |s| {
         if !address(&login) || s.exact_recipient(&login)? != Some(account) {
             return Ok(Response::error_because(422, "Sending requires an address matching your user name."));
@@ -110,8 +113,8 @@ pub(super) async fn handle(app: &App, req: &Request, body: &[u8]) -> Result<Resp
                 Err(e) => return Err(e),
             }
         }
-        write!(message, "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n")?;
-        for line in body.as_bytes().chunks(76) { message.write_all(line)?; message.write_all(b"\r\n")?; }
+        write!(message, "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n")?;
+        write_body(&mut message, &body, &html, nonce)?;
         if let Some(recipient) = s.exact_recipient(&to)? {
             let d = Delivery { key: &id, envelope_from: &from, envelope_to: &to, expected_size: message.len() as u64,
                 received_ms: now.as_millis() as i64 };
@@ -133,4 +136,46 @@ pub(super) async fn handle(app: &App, req: &Request, body: &[u8]) -> Result<Resp
             h.raw("<p>Your message is in the outgoing queue. <a href=\"/outbox\">Check delivery status</a>.</p><a href=\"/inbox\">Return to inbox</a>");
         })))
     }).await
+}
+
+fn write_body(out: &mut Vec<u8>, plain: &str, html: &str, nonce: u64) -> std::io::Result<()> {
+    fn part(out: &mut Vec<u8>, subtype: &str, text: &str) -> std::io::Result<()> {
+        write!(out, "Content-Type: text/{subtype}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n")?;
+        let encoded = STANDARD.encode(text.replace("\r\n", "\n").replace('\n', "\r\n"));
+        for line in encoded.as_bytes().chunks(76) {
+            out.write_all(line)?;
+            out.write_all(b"\r\n")?;
+        }
+        Ok(())
+    }
+    if html.is_empty() { return part(out, "plain", plain); }
+    let boundary = format!("pm-{nonce:016x}");
+    write!(out, "Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n\r\n--{boundary}\r\n")?;
+    part(out, "plain", plain)?;
+    write!(out, "--{boundary}\r\n")?;
+    part(out, "html", html)?;
+    write!(out, "--{boundary}--\r\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_body;
+    use mail_parser::MessageParser;
+
+    #[test]
+    fn composed_alternatives_round_trip() {
+        let plain = "Hello, Zoë!";
+        let html = "<p>Hello, <strong>Zoë</strong>!</p>";
+        let mut bytes = Vec::new();
+        write_body(&mut bytes, plain, html, 1).unwrap();
+        let parsed = MessageParser::default().parse(&bytes).unwrap();
+        assert_eq!(parsed.body_text(0).as_deref(), Some(plain));
+        assert_eq!(parsed.body_html(0).as_deref(), Some(html));
+        assert_eq!(parsed.parts().len(), 3);
+        bytes.clear();
+        write_body(&mut bytes, plain, "", 1).unwrap();
+        let parsed = MessageParser::default().parse(&bytes).unwrap();
+        assert_eq!(parsed.parts().len(), 1);
+        assert_eq!(parsed.body_text(0).as_deref(), Some(plain));
+    }
 }
