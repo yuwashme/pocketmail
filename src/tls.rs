@@ -54,11 +54,15 @@ fn client_with(roots: RootCertStore) -> Arc<ClientConfig> {
 
 /// Client config for the Worker pull: Mozilla roots from webpki-roots, TLS 1.2 and 1.3, ring.
 pub fn client_config() -> Arc<ClientConfig> {
-    client_with(RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() })
+    client_with(RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    })
 }
 
 /// Client config that trusts only `roots` (tests inject a test CA here). TLS 1.2 and 1.3, ring.
-pub fn client_config_with_roots(roots: Vec<CertificateDer<'static>>) -> Result<Arc<ClientConfig>, TlsError> {
+pub fn client_config_with_roots(
+    roots: Vec<CertificateDer<'static>>,
+) -> Result<Arc<ClientConfig>, TlsError> {
     let mut store = RootCertStore::empty();
     for r in roots {
         store.add(r).map_err(TlsError::Rustls)?;
@@ -73,7 +77,9 @@ fn pem_err(e: pem::Error) -> TlsError {
 /// Listener config from PEM bytes: certificate chain (leaf first) and one private key.
 /// No client auth, TLS 1.2 and 1.3, ring.
 pub fn server_config(cert_pem: &[u8], key_pem: &[u8]) -> Result<Arc<ServerConfig>, TlsError> {
-    let chain = CertificateDer::pem_slice_iter(cert_pem).collect::<Result<Vec<_>, _>>().map_err(pem_err)?;
+    let chain = CertificateDer::pem_slice_iter(cert_pem)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(pem_err)?;
     if chain.is_empty() {
         return Err(TlsError::NoCertificate);
     }

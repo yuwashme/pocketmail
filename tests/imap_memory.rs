@@ -64,7 +64,10 @@ fn eighty_idle_connections_use_under_4_mib_of_heap() {
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let server = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async move {
             let h = Harness::start_with(|c| {
                 c.max_conn = 200;
@@ -83,11 +86,19 @@ fn eighty_idle_connections_use_under_4_mib_of_heap() {
             drop(h);
         });
     });
-    let (addr, ca_pem) = ready_rx.recv_timeout(Duration::from_secs(60)).expect("IMAP server thread did not start (see its panic above)");
+    let (addr, ca_pem) = ready_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("IMAP server thread did not start (see its panic above)");
 
     let before = settled_live();
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["idle_client_child", "--exact", "--ignored", "--nocapture", "--test-threads=1"])
+        .args([
+            "idle_client_child",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env(ADDR_ENV, addr.to_string())
         .env(CA_ENV, ca_pem)
         .stdin(Stdio::piped())
@@ -136,14 +147,21 @@ fn idle_client_child() {
     let root = CertificateDer::from_pem_slice(ca.as_bytes()).unwrap();
     let tls = synology_mail_server::tls::client_config_with_roots(vec![root]).unwrap();
     let addr: std::net::SocketAddr = addr.parse().unwrap();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let clients = rt.block_on(async {
         let mut clients = Vec::new();
         for i in 0..CONNS {
-            let mut c = Client::open_with(addr, tls.clone()).await.unwrap_or_else(|e| panic!("connection {i}: {e}"));
+            let mut c = Client::open_with(addr, tls.clone())
+                .await
+                .unwrap_or_else(|e| panic!("connection {i}: {e}"));
             let g = c.read_response().await.expect("greeting");
             assert!(g.starts_with(b"* OK"), "connection {i}: {}", show(&g));
-            c.cmd("L", &format!("LOGIN {USER} {}", password(USER))).await.assert_ok();
+            c.cmd("L", &format!("LOGIN {USER} {}", password(USER)))
+                .await
+                .assert_ok();
             c.cmd("S", "SELECT INBOX").await.assert_ok();
             clients.push(c);
         }

@@ -28,8 +28,7 @@ pub fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
-// ---------------------------------------------------------------------------------------------
-// Test PKI
+// // Test PKI
 
 /// A fresh test CA and one leaf certificate signed by it.
 pub struct Pki {
@@ -46,17 +45,25 @@ impl Pki {
     pub fn new(names: &[&str]) -> Pki {
         let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        ca_params.distinguished_name.push(rcgen::DnType::CommonName, "SSM test CA");
+        ca_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "SSM test CA");
         ca_params.key_usages = vec![
             rcgen::KeyUsagePurpose::KeyCertSign,
             rcgen::KeyUsagePurpose::CrlSign,
             rcgen::KeyUsagePurpose::DigitalSignature,
         ];
-        let ca = rcgen::CertifiedIssuer::self_signed(ca_params, rcgen::KeyPair::generate().unwrap()).unwrap();
+        let ca =
+            rcgen::CertifiedIssuer::self_signed(ca_params, rcgen::KeyPair::generate().unwrap())
+                .unwrap();
 
         let leaf_key = rcgen::KeyPair::generate().unwrap();
-        let mut leaf_params = rcgen::CertificateParams::new(names.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
-        leaf_params.distinguished_name.push(rcgen::DnType::CommonName, names[0]);
+        let mut leaf_params =
+            rcgen::CertificateParams::new(names.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap();
+        leaf_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, names[0]);
         leaf_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
         let leaf = leaf_params.signed_by(&leaf_key, &*ca).unwrap();
 
@@ -85,7 +92,10 @@ pub fn server_tls(pki: &Pki) -> Arc<rustls::ServerConfig> {
     server_tls_versions(pki, rustls::DEFAULT_VERSIONS)
 }
 
-pub fn server_tls_versions(pki: &Pki, versions: &[&'static rustls::SupportedProtocolVersion]) -> Arc<rustls::ServerConfig> {
+pub fn server_tls_versions(
+    pki: &Pki,
+    versions: &[&'static rustls::SupportedProtocolVersion],
+) -> Arc<rustls::ServerConfig> {
     Arc::new(
         rustls::ServerConfig::builder_with_provider(provider())
             .with_protocol_versions(versions)
@@ -101,7 +111,10 @@ pub fn client_tls(pki: &Pki) -> Arc<rustls::ClientConfig> {
     client_tls_versions(pki, rustls::DEFAULT_VERSIONS)
 }
 
-pub fn client_tls_versions(pki: &Pki, versions: &[&'static rustls::SupportedProtocolVersion]) -> Arc<rustls::ClientConfig> {
+pub fn client_tls_versions(
+    pki: &Pki,
+    versions: &[&'static rustls::SupportedProtocolVersion],
+) -> Arc<rustls::ClientConfig> {
     let mut roots = rustls::RootCertStore::empty();
     roots.add(pki.ca_der.clone()).unwrap();
     Arc::new(
@@ -117,8 +130,7 @@ pub fn base_url(addr: SocketAddr) -> String {
     format!("https://127.0.0.1:{}", addr.port())
 }
 
-// ---------------------------------------------------------------------------------------------
-// One-shot raw HTTPS server
+// // One-shot raw HTTPS server
 
 /// Read a request head (up to and including the blank line). Requests here never have a body.
 pub async fn read_head(s: &mut ServerStream) -> Vec<u8> {
@@ -162,7 +174,11 @@ where
             }
         }
     });
-    Served { addr, url: base_url(addr), request: rx }
+    Served {
+        addr,
+        url: base_url(addr),
+        request: rx,
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -206,21 +222,36 @@ pub fn parse_request(head: &[u8]) -> (String, String, Vec<(String, String)>) {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
     let status = req.parse(head).expect("request head parses");
-    assert!(status.is_complete(), "complete request head: {:?}", String::from_utf8_lossy(head));
+    assert!(
+        status.is_complete(),
+        "complete request head: {:?}",
+        String::from_utf8_lossy(head)
+    );
     let hs = req
         .headers
         .iter()
-        .map(|h| (h.name.to_string(), String::from_utf8_lossy(h.value).into_owned()))
+        .map(|h| {
+            (
+                h.name.to_string(),
+                String::from_utf8_lossy(h.value).into_owned(),
+            )
+        })
         .collect();
-    (req.method.unwrap().to_string(), req.path.unwrap().to_string(), hs)
+    (
+        req.method.unwrap().to_string(),
+        req.path.unwrap().to_string(),
+        hs,
+    )
 }
 
 pub fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
 }
 
-// ---------------------------------------------------------------------------------------------
-// Percent-encoding as the Worker does it (JavaScript encodeURIComponent)
+// // Percent-encoding as the Worker does it (JavaScript encodeURIComponent)
 
 pub fn encode_uri_component(s: &str) -> String {
     let mut out = String::new();
@@ -239,20 +270,21 @@ pub fn percent_decode(s: &str) -> String {
     let mut out = Vec::new();
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
         out.push(b[i]);
         i += 1;
     }
     String::from_utf8(out).unwrap()
 }
 
-// ---------------------------------------------------------------------------------------------
-// Simulated clock for the poll loop
+// // Simulated clock for the poll loop
 
 /// `sleep` advances simulated time at once. A sleep that would reach `limit` never returns and
 /// signals `done`, so a test can stop `Poller::run` after N simulated hours.
@@ -265,7 +297,12 @@ pub struct SimClock {
 
 impl SimClock {
     pub fn new(limit: Duration) -> Arc<SimClock> {
-        Arc::new(SimClock { now: Mutex::new(Duration::ZERO), limit, done: Notify::new(), sleeps: Mutex::new(Vec::new()) })
+        Arc::new(SimClock {
+            now: Mutex::new(Duration::ZERO),
+            limit,
+            done: Notify::new(),
+            sleeps: Mutex::new(Vec::new()),
+        })
     }
 }
 
@@ -295,8 +332,7 @@ pub fn mins(m: u64) -> Duration {
     Duration::from_secs(m * 60)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Fake inbound Worker (contract v1; v0 when `v0` is set)
+// // Fake inbound Worker (contract v1; v0 when `v0` is set)
 
 pub const TOKEN: &str = "test-token-not-a-secret";
 
@@ -359,12 +395,16 @@ impl FakeWorker {
         let st = state.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((tcp, _)) = listener.accept().await else { return };
+                let Ok((tcp, _)) = listener.accept().await else {
+                    return;
+                };
                 let acceptor = acceptor.clone();
                 let st = st.clone();
                 let clock = clock.clone();
                 tokio::spawn(async move {
-                    let Ok(mut s) = acceptor.accept(tcp).await else { return };
+                    let Ok(mut s) = acceptor.accept(tcp).await else {
+                        return;
+                    };
                     let head = read_head(&mut s).await;
                     if head.is_empty() {
                         return;
@@ -377,7 +417,11 @@ impl FakeWorker {
                 });
             }
         });
-        FakeWorker { addr, url: base_url(addr), state }
+        FakeWorker {
+            addr,
+            url: base_url(addr),
+            state,
+        }
     }
 
     /// Store a message the way the v1 Worker's email() does (metadata from/to).
@@ -385,7 +429,12 @@ impl FakeWorker {
         self.with(|s| {
             s.kv.insert(
                 key.to_string(),
-                StoredMsg { body: body.to_vec(), from: Some(from.to_string()), to: Some(to.to_string()), size_header: None },
+                StoredMsg {
+                    body: body.to_vec(),
+                    from: Some(from.to_string()),
+                    to: Some(to.to_string()),
+                    size_header: None,
+                },
             )
         });
     }
@@ -404,11 +453,18 @@ impl FakeWorker {
 
     /// Requests with this method whose decoded path is exactly `path`.
     pub fn count(&self, method: &str, path: &str) -> usize {
-        self.requests().iter().filter(|r| r.method == method && r.path == path).count()
+        self.requests()
+            .iter()
+            .filter(|r| r.method == method && r.path == path)
+            .count()
     }
 
     pub fn lists(&self) -> Vec<Duration> {
-        self.requests().iter().filter(|r| r.method == "GET" && r.path == "/messages").map(|r| r.at).collect()
+        self.requests()
+            .iter()
+            .filter(|r| r.method == "GET" && r.path == "/messages")
+            .map(|r| r.at)
+            .collect()
     }
 }
 
@@ -443,12 +499,21 @@ fn handle(st: &Mutex<State>, head: &[u8], now: Duration) -> Vec<u8> {
     let (method, raw_path, headers) = parse_request(head);
     let path = percent_decode(&raw_path);
     let mut s = st.lock().unwrap();
-    s.requests.push(Req { method: method.clone(), path: path.clone(), headers: headers.clone(), at: now });
+    s.requests.push(Req {
+        method: method.clone(),
+        path: path.clone(),
+        headers: headers.clone(),
+        at: now,
+    });
 
     let authorized = header(&headers, "authorization") == Some(&format!("Bearer {TOKEN}"));
     let locked = s.unauthorized_until.is_some_and(|until| now < until);
     if !authorized || locked {
-        return response(401, &[("content-type", "text/plain".into())], b"unauthorized");
+        return response(
+            401,
+            &[("content-type", "text/plain".into())],
+            b"unauthorized",
+        );
     }
 
     if path == "/messages" && method == "GET" {
@@ -456,7 +521,12 @@ fn handle(st: &Mutex<State>, head: &[u8], now: Duration) -> Vec<u8> {
             return response(code, &[("content-type", "text/plain".into())], b"error");
         }
         let mut ids: Vec<String> = s.kv.keys().cloned().collect();
-        let ghosts: Vec<String> = s.ghosts.iter().filter(|(_, n)| **n > 0).map(|(k, _)| k.clone()).collect();
+        let ghosts: Vec<String> = s
+            .ghosts
+            .iter()
+            .filter(|(_, n)| **n > 0)
+            .map(|(k, _)| k.clone())
+            .collect();
         for g in ghosts {
             *s.ghosts.get_mut(&g).unwrap() -= 1;
             if !ids.contains(&g) {
@@ -477,7 +547,11 @@ fn handle(st: &Mutex<State>, head: &[u8], now: Duration) -> Vec<u8> {
         } else {
             serde_json::json!({ "ids": ids, "complete": complete })
         };
-        return response(200, &[("content-type", "application/json".into())], json.to_string().as_bytes());
+        return response(
+            200,
+            &[("content-type", "application/json".into())],
+            json.to_string().as_bytes(),
+        );
     }
 
     if let Some(id) = path.strip_prefix("/messages/") {
@@ -491,7 +565,12 @@ fn handle(st: &Mutex<State>, head: &[u8], now: Duration) -> Vec<u8> {
             };
             let mut hs = vec![("content-type", "message/rfc822".to_string())];
             if !s.v0 {
-                hs.push(("x-ssm-size", m.size_header.clone().unwrap_or_else(|| m.body.len().to_string())));
+                hs.push((
+                    "x-ssm-size",
+                    m.size_header
+                        .clone()
+                        .unwrap_or_else(|| m.body.len().to_string()),
+                ));
                 if let Some(to) = &m.to {
                     hs.push(("x-ssm-envelope-to", encode_uri_component(to)));
                 }
@@ -503,12 +582,13 @@ fn handle(st: &Mutex<State>, head: &[u8], now: Duration) -> Vec<u8> {
         }
         if method == "DELETE" {
             if let Some(n) = s.delete_failures.get_mut(&id)
-                && *n > 0 {
-                    if *n != u32::MAX {
-                        *n -= 1;
-                    }
-                    return response(500, &[("content-type", "text/plain".into())], b"kv error");
+                && *n > 0
+            {
+                if *n != u32::MAX {
+                    *n -= 1;
                 }
+                return response(500, &[("content-type", "text/plain".into())], b"kv error");
+            }
             if s.kv.remove(&id).is_some() && s.stale_lists_after_delete > 0 {
                 let n = s.stale_lists_after_delete;
                 s.ghosts.insert(id, n);

@@ -1,7 +1,7 @@
 //! `synology-mail-server` command line. Configuration comes from SSM_* environment variables (src/config.rs). Passwords are read from stdin, never from argv,
 //! so they do not show up in `ps` or shell history.
 
-use std::io::{self, BufRead, Read, IsTerminal, Write};
+use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -67,7 +67,10 @@ fn parse(args: &[String]) -> Option<Cmd<'_>> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("-h" | "--help" | "help")
+    ) {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
@@ -106,13 +109,23 @@ fn run(cmd: Cmd<'_>, config: &Config) -> Result<()> {
             if id.is_empty() || id.len() > 100 || !id.bytes().all(|b| b.is_ascii_alphanumeric()) {
                 return Err("invalid queue ID".into());
             }
-            if store.route(to)?.is_none() { return Err("recipient has no mailbox".into()); }
+            if store.route(to)?.is_none() {
+                return Err("recipient has no mailbox".into());
+            }
             let mut raw = Vec::new();
-            io::stdin().lock().take(25 * 1024 * 1024 + 1).read_to_end(&mut raw)?;
-            if raw.len() > 25 * 1024 * 1024 { return Err("message exceeds 25 MiB".into()); }
+            io::stdin()
+                .lock()
+                .take(25 * 1024 * 1024 + 1)
+                .read_to_end(&mut raw)?;
+            if raw.len() > 25 * 1024 * 1024 {
+                return Err("message exceeds 25 MiB".into());
+            }
             let key = format!("smtp:{id}:{to}");
             let delivery = synology_mail_server::store::Delivery {
-                key: &key, envelope_from: from, envelope_to: to, expected_size: raw.len() as u64,
+                key: &key,
+                envelope_from: from,
+                envelope_to: to,
+                expected_size: raw.len() as u64,
                 received_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
             };
             store.deliver(&delivery, &mut raw.as_slice())?;
@@ -130,7 +143,11 @@ fn run(cmd: Cmd<'_>, config: &Config) -> Result<()> {
         Cmd::AccountList => {
             let addresses = store.addresses()?;
             for a in store.accounts()? {
-                let mine: Vec<&str> = addresses.iter().filter(|(_, l)| *l == a.login).map(|(addr, _)| addr.as_str()).collect();
+                let mine: Vec<&str> = addresses
+                    .iter()
+                    .filter(|(_, l)| *l == a.login)
+                    .map(|(addr, _)| addr.as_str())
+                    .collect();
                 println!(
                     "{}\tcreated {}{}{}\t{}",
                     a.login,
@@ -143,7 +160,10 @@ fn run(cmd: Cmd<'_>, config: &Config) -> Result<()> {
         }
         Cmd::AccountAdmin(login, on) => {
             store.set_admin(login, on)?;
-            println!("{login} is {} an admin", if on { "now" } else { "no longer" });
+            println!(
+                "{login} is {} an admin",
+                if on { "now" } else { "no longer" }
+            );
         }
         Cmd::AddressAdd(address, login) => {
             store.add_address(address, login)?;
@@ -163,24 +183,33 @@ fn run(cmd: Cmd<'_>, config: &Config) -> Result<()> {
 /// The web listener is the exception: if it cannot start, a warning is logged and the rest runs.
 fn serve(config: &Config) -> Result<()> {
     let tls = match (&config.tls_cert, &config.tls_key) {
-        (Some(cert), Some(key)) => Some(
-            tls::server_config_from_files(cert, key)
-                .map_err(|e| format!("cannot load SSM_TLS_CERT {} / SSM_TLS_KEY {}: {e}", cert.display(), key.display()))?,
-        ),
+        (Some(cert), Some(key)) => Some(tls::server_config_from_files(cert, key).map_err(|e| {
+            format!(
+                "cannot load SSM_TLS_CERT {} / SSM_TLS_KEY {}: {e}",
+                cert.display(),
+                key.display()
+            )
+        })?),
         _ => None,
     };
-    let tunnel_addr = std::env::var("SSM_WEBMAIL_LISTEN").ok()
+    let tunnel_addr = std::env::var("SSM_WEBMAIL_LISTEN")
+        .ok()
         .filter(|v| !v.is_empty() && v != "off")
-        .map(|v| v.parse::<std::net::SocketAddr>()).transpose()?;
-    if let Some(addr) = tunnel_addr {
-        if !addr.ip().is_loopback() || tls.is_none() {
-            return Err("SSM_WEBMAIL_LISTEN needs a loopback address and TLS certificate".into());
-        }
+        .map(|v| v.parse::<std::net::SocketAddr>())
+        .transpose()?;
+    if let Some(addr) = tunnel_addr
+        && (!addr.ip().is_loopback() || tls.is_none())
+    {
+        return Err("SSM_WEBMAIL_LISTEN needs a loopback address and TLS certificate".into());
     }
     let api = match (&config.pull_url, &config.pull_token_file) {
         (Some(url), Some(file)) => {
-            let token = read_token_file(file).map_err(|e| format!("cannot read SSM_PULL_TOKEN_FILE {}: {e}", file.display()))?;
-            Some(WorkerApi::new(HttpClient::new(tls::client_config()), url, &token).map_err(|e| format!("SSM_PULL_URL: {e}"))?)
+            let token = read_token_file(file)
+                .map_err(|e| format!("cannot read SSM_PULL_TOKEN_FILE {}: {e}", file.display()))?;
+            Some(
+                WorkerApi::new(HttpClient::new(tls::client_config()), url, &token)
+                    .map_err(|e| format!("SSM_PULL_URL: {e}"))?,
+            )
         }
         _ => None,
     };
@@ -191,7 +220,11 @@ fn serve(config: &Config) -> Result<()> {
         .thread_keep_alive(Duration::from_secs(10))
         .build()?;
     let store = Arc::new(Store::open(&config.data_dir)?);
-    log_info!("store open at {} ({} accounts)", config.data_dir.display(), store.accounts()?.len());
+    log_info!(
+        "store open at {} ({} accounts)",
+        config.data_dir.display(),
+        store.accounts()?.len()
+    );
 
     let result = runtime.block_on(async {
         match tls {
@@ -273,7 +306,10 @@ fn serve(config: &Config) -> Result<()> {
 /// `Store::prune_handoff` at startup and then once a day.
 async fn prune_daily(store: Arc<Store>) {
     loop {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
         let cutoff = now - HANDOFF_KEEP.as_secs() as i64;
         let s = store.clone();
         match tokio::task::spawn_blocking(move || s.prune_handoff(cutoff)).await {
@@ -338,7 +374,12 @@ fn prompt(text: &str) -> Result<String> {
 }
 
 fn stty(arg: &str) -> bool {
-    Command::new("stty").arg(arg).stdin(Stdio::inherit()).status().map(|s| s.success()).unwrap_or(false)
+    Command::new("stty")
+        .arg(arg)
+        .stdin(Stdio::inherit())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn read_line(r: &mut dyn BufRead) -> io::Result<String> {

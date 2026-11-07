@@ -50,7 +50,9 @@ fn account_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
 
 fn new_auth_stamp() -> Result<i64, StoreError> {
     loop {
-        let s = getrandom::u64().map_err(|e| StoreError::Io(std::io::Error::other(e.to_string())))? as i64;
+        let s = getrandom::u64()
+            .map_err(|e| StoreError::Io(std::io::Error::other(e.to_string())))?
+            as i64;
         if s != 0 {
             return Ok(s);
         }
@@ -63,7 +65,9 @@ fn hasher() -> Argon2<'static> {
 }
 
 fn hash_password(password: &str) -> Result<String, StoreError> {
-    let h: PasswordHash = hasher().hash_password(password.as_bytes()).map_err(|e| StoreError::Hash(e.to_string()))?;
+    let h: PasswordHash = hasher()
+        .hash_password(password.as_bytes())
+        .map_err(|e| StoreError::Hash(e.to_string()))?;
     Ok(h.to_string())
 }
 
@@ -89,7 +93,11 @@ pub(crate) struct Permit<'a>(&'a Gate);
 
 impl Gate {
     pub(crate) fn new(max: usize) -> Gate {
-        Gate { busy: Mutex::new(0), freed: Condvar::new(), max }
+        Gate {
+            busy: Mutex::new(0),
+            freed: Condvar::new(),
+            max,
+        }
     }
 
     fn acquire(&self) -> Permit<'_> {
@@ -114,18 +122,24 @@ pub fn check_login(login: &str) -> Result<(), StoreError> {
         return Err(StoreError::InvalidInput("login must be 1-255 bytes".into()));
     }
     if login.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return Err(StoreError::InvalidInput("login must not contain spaces or control characters".into()));
+        return Err(StoreError::InvalidInput(
+            "login must not contain spaces or control characters".into(),
+        ));
     }
     Ok(())
 }
 
 pub fn check_password(password: &str) -> Result<(), StoreError> {
     if password.is_empty() {
-        return Err(StoreError::InvalidInput("password must not be empty".into()));
+        return Err(StoreError::InvalidInput(
+            "password must not be empty".into(),
+        ));
     }
     // NUL separates AUTH PLAIN fields and CR/LF ends an IMAP line: such a password could never log in.
     if password.contains(['\0', '\r', '\n']) {
-        return Err(StoreError::InvalidInput("password must not contain NUL, CR or LF".into()));
+        return Err(StoreError::InvalidInput(
+            "password must not contain NUL, CR or LF".into(),
+        ));
     }
     Ok(())
 }
@@ -138,13 +152,19 @@ pub fn normalize_address(address: &str) -> Result<String, StoreError> {
         return Err(StoreError::InvalidInput(format!("{address:?} has no '@'")));
     };
     if domain.is_empty() || domain.contains('@') {
-        return Err(StoreError::InvalidInput(format!("{address:?} needs exactly one '@' and a domain")));
+        return Err(StoreError::InvalidInput(format!(
+            "{address:?} needs exactly one '@' and a domain"
+        )));
     }
     if local.contains('+') {
-        return Err(StoreError::InvalidInput(format!("{address:?}: '+' in the local part is reserved for tags")));
+        return Err(StoreError::InvalidInput(format!(
+            "{address:?}: '+' in the local part is reserved for tags"
+        )));
     }
     if a.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return Err(StoreError::InvalidInput(format!("{address:?} contains spaces or control characters")));
+        return Err(StoreError::InvalidInput(format!(
+            "{address:?} contains spaces or control characters"
+        )));
     }
     Ok(a)
 }
@@ -152,10 +172,15 @@ pub fn normalize_address(address: &str) -> Result<String, StoreError> {
 impl Store {
     /// Also creates the account's INBOX (uidvalidity = creation unix seconds).
     pub fn create_account(&self, login: &str, password: &str) -> Result<AccountId, StoreError> {
-        self.create_account_with_role(login,password,false)
+        self.create_account_with_role(login, password, false)
     }
 
-    pub fn create_account_with_role(&self, login:&str, password:&str, admin:bool)->Result<AccountId,StoreError>{
+    pub fn create_account_with_role(
+        &self,
+        login: &str,
+        password: &str,
+        admin: bool,
+    ) -> Result<AccountId, StoreError> {
         check_login(login)?;
         check_password(password)?;
         if self.account_id(login)?.is_some() {
@@ -174,7 +199,10 @@ impl Store {
             r => r?,
         };
         let id = tx.last_insert_rowid();
-        tx.execute("INSERT INTO mailboxes(account_id, name, uidvalidity) VALUES (?, 'INBOX', ?)", params![id, now])?;
+        tx.execute(
+            "INSERT INTO mailboxes(account_id, name, uidvalidity) VALUES (?, 'INBOX', ?)",
+            params![id, now],
+        )?;
         tx.commit()?;
         Ok(AccountId(id))
     }
@@ -187,9 +215,10 @@ impl Store {
         }
         let hash = self.hash(password)?;
         let stamp = new_auth_stamp()?;
-        let n = self
-            .writer()
-            .execute("UPDATE accounts SET password_hash = ?, auth_stamp = ? WHERE login = ?", params![hash, stamp, login])?;
+        let n = self.writer().execute(
+            "UPDATE accounts SET password_hash = ?, auth_stamp = ? WHERE login = ?",
+            params![hash, stamp, login],
+        )?;
         if n == 0 {
             return Err(StoreError::NotFound(format!("account {login}")));
         }
@@ -203,14 +232,16 @@ impl Store {
 
     pub fn accounts(&self) -> Result<Vec<Account>, StoreError> {
         let c = self.reader();
-        let mut st = c.prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts ORDER BY id"))?;
+        let mut st =
+            c.prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts ORDER BY id"))?;
         let rows = st.query_map([], account_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn account_by_id(&self, id: AccountId) -> Result<Option<Account>, StoreError> {
         let c = self.reader();
-        let mut st = c.prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts WHERE id = ?"))?;
+        let mut st =
+            c.prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts WHERE id = ?"))?;
         Ok(st.query_row([id.0], account_row).optional()?)
     }
 
@@ -228,7 +259,8 @@ impl Store {
     /// Is any account both admin and enabled?
     pub fn has_active_admin(&self) -> Result<bool, StoreError> {
         let c = self.reader();
-        let mut st = c.prepare_cached("SELECT 1 FROM accounts WHERE admin = 1 AND IFNULL(disabled, 0) = 0")?;
+        let mut st =
+            c.prepare_cached("SELECT 1 FROM accounts WHERE admin = 1 AND IFNULL(disabled, 0) = 0")?;
         Ok(st.exists([])?)
     }
 
@@ -238,7 +270,11 @@ impl Store {
         let mut c = self.writer();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let active_admin: Option<bool> = tx
-            .query_row("SELECT admin = 1 AND IFNULL(disabled, 0) = 0 FROM accounts WHERE login = ?", [login], |r| r.get(0))
+            .query_row(
+                "SELECT admin = 1 AND IFNULL(disabled, 0) = 0 FROM accounts WHERE login = ?",
+                [login],
+                |r| r.get(0),
+            )
             .optional()?;
         let Some(active_admin) = active_admin else {
             return Err(StoreError::NotFound(format!("account {login}")));
@@ -253,7 +289,10 @@ impl Store {
                 return Err(StoreError::LastAdmin);
             }
         }
-        tx.execute(&format!("UPDATE accounts SET {column} = ? WHERE login = ?"), params![on, login])?;
+        tx.execute(
+            &format!("UPDATE accounts SET {column} = ? WHERE login = ?"),
+            params![on, login],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -261,13 +300,20 @@ impl Store {
     pub fn account_id(&self, login: &str) -> Result<Option<AccountId>, StoreError> {
         let c = self.reader();
         let mut st = c.prepare_cached("SELECT id FROM accounts WHERE login = ?")?;
-        Ok(st.query_row([login], |r| r.get(0)).optional()?.map(AccountId))
+        Ok(st
+            .query_row([login], |r| r.get(0))
+            .optional()?
+            .map(AccountId))
     }
 
     /// Ok(None) for a wrong password, an unknown login or a disabled account; an unknown login
     /// still runs one (dummy) argon2 verify so both take the same time. At most two verifies run
     /// at once (12 MiB each).
-    pub fn authenticate(&self, login: &str, password: &str) -> Result<Option<AccountId>, StoreError> {
+    pub fn authenticate(
+        &self,
+        login: &str,
+        password: &str,
+    ) -> Result<Option<AccountId>, StoreError> {
         Ok(match self.verify_login(login, password)? {
             Verified::Valid(account) => Some(account.id),
             Verified::Disabled | Verified::Invalid => None,
@@ -279,8 +325,11 @@ impl Store {
     pub fn verify_login(&self, login: &str, password: &str) -> Result<Verified, StoreError> {
         let row: Option<(Account, String)> = {
             let c = self.reader();
-            let mut st = c.prepare_cached(&format!("SELECT {ACCOUNT_COLS}, password_hash FROM accounts WHERE login = ?"))?;
-            st.query_row([login], |r| Ok((account_row(r)?, r.get(6)?))).optional()?
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {ACCOUNT_COLS}, password_hash FROM accounts WHERE login = ?"
+            ))?;
+            st.query_row([login], |r| Ok((account_row(r)?, r.get(6)?)))
+                .optional()?
         };
         let _permit = self.argon2_gate.acquire();
         Ok(match row {
@@ -299,8 +348,13 @@ impl Store {
     /// Register "user@dom" or the catch-all "@dom" (stored lowercase) for an account.
     pub fn add_address(&self, address: &str, login: &str) -> Result<(), StoreError> {
         let a = normalize_address(address)?;
-        let id = self.account_id(login)?.ok_or_else(|| StoreError::NotFound(format!("account {login}")))?;
-        match self.writer().execute("INSERT INTO addresses(address, account_id) VALUES (?, ?)", params![a, id.0]) {
+        let id = self
+            .account_id(login)?
+            .ok_or_else(|| StoreError::NotFound(format!("account {login}")))?;
+        match self.writer().execute(
+            "INSERT INTO addresses(address, account_id) VALUES (?, ?)",
+            params![a, id.0],
+        ) {
             Err(e) if is_constraint(&e) => Err(StoreError::AlreadyExists(format!("address {a}"))),
             r => r.map(|_| ()).map_err(Into::into),
         }
@@ -308,7 +362,10 @@ impl Store {
 
     pub fn remove_address(&self, address: &str) -> Result<(), StoreError> {
         let a = address.to_lowercase();
-        match self.writer().execute("DELETE FROM addresses WHERE address = ?", [&a])? {
+        match self
+            .writer()
+            .execute("DELETE FROM addresses WHERE address = ?", [&a])?
+        {
             0 => Err(StoreError::NotFound(format!("address {a}"))),
             _ => Ok(()),
         }
@@ -318,7 +375,10 @@ impl Store {
     pub fn exact_recipient(&self, address: &str) -> Result<Option<AccountId>, StoreError> {
         let c = self.reader();
         let mut st = c.prepare_cached("SELECT account_id FROM addresses WHERE address = ?")?;
-        Ok(st.query_row([address.to_lowercase()], |r| r.get(0)).optional()?.map(AccountId))
+        Ok(st
+            .query_row([address.to_lowercase()], |r| r.get(0))
+            .optional()?
+            .map(AccountId))
     }
 
     pub fn addresses(&self) -> Result<Vec<(String, String)>, StoreError> {
@@ -334,7 +394,9 @@ impl Store {
     /// Domain = after the last '@'. Empty local part or domain: no route.
     pub fn route(&self, envelope_to: &str) -> Result<Option<AccountId>, StoreError> {
         let a = envelope_to.to_lowercase();
-        let Some((local, domain)) = a.rsplit_once('@') else { return Ok(None) };
+        let Some((local, domain)) = a.rsplit_once('@') else {
+            return Ok(None);
+        };
         if local.is_empty() || domain.is_empty() {
             return Ok(None);
         }
@@ -342,10 +404,16 @@ impl Store {
         let c = self.reader();
         let mut st = c.prepare_cached("SELECT account_id FROM addresses WHERE address = ?")?;
         if !base.is_empty()
-            && let Some(id) = st.query_row([format!("{base}@{domain}")], |r| r.get(0)).optional()? {
-                return Ok(Some(AccountId(id)));
-            }
-        Ok(st.query_row([format!("@{domain}")], |r| r.get(0)).optional()?.map(AccountId))
+            && let Some(id) = st
+                .query_row([format!("{base}@{domain}")], |r| r.get(0))
+                .optional()?
+        {
+            return Ok(Some(AccountId(id)));
+        }
+        Ok(st
+            .query_row([format!("@{domain}")], |r| r.get(0))
+            .optional()?
+            .map(AccountId))
     }
 }
 
@@ -359,13 +427,33 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(&tmp.path().join("data")).unwrap();
         store.create_account(LOGIN, "right-password").unwrap();
-        assert!(matches!(store.verify_login(LOGIN, "right-password").unwrap(), Verified::Valid(a) if a.login == LOGIN));
-        assert!(matches!(store.verify_login(LOGIN, "wrong-password").unwrap(), Verified::Invalid));
+        assert!(
+            matches!(store.verify_login(LOGIN, "right-password").unwrap(), Verified::Valid(a) if a.login == LOGIN)
+        );
+        assert!(matches!(
+            store.verify_login(LOGIN, "wrong-password").unwrap(),
+            Verified::Invalid
+        ));
 
         store.set_disabled(LOGIN, true).unwrap();
-        assert!(matches!(store.verify_login(LOGIN, "right-password").unwrap(), Verified::Disabled));
-        assert!(matches!(store.verify_login(LOGIN, "wrong-password").unwrap(), Verified::Invalid));
-        assert!(matches!(store.verify_login("nobody@example.com", "right-password").unwrap(), Verified::Invalid));
-        assert_eq!(store.authenticate(LOGIN, "right-password").unwrap(), None, "authenticate still refuses a disabled account");
+        assert!(matches!(
+            store.verify_login(LOGIN, "right-password").unwrap(),
+            Verified::Disabled
+        ));
+        assert!(matches!(
+            store.verify_login(LOGIN, "wrong-password").unwrap(),
+            Verified::Invalid
+        ));
+        assert!(matches!(
+            store
+                .verify_login("nobody@example.com", "right-password")
+                .unwrap(),
+            Verified::Invalid
+        ));
+        assert_eq!(
+            store.authenticate(LOGIN, "right-password").unwrap(),
+            None,
+            "authenticate still refuses a disabled account"
+        );
     }
 }

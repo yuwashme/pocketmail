@@ -18,7 +18,11 @@ pub(crate) fn name(received_ms: i64) -> Result<String, StoreError> {
 pub(crate) fn empty_dir(dir: &Path) -> io::Result<()> {
     for e in fs::read_dir(dir)? {
         let p = e?.path();
-        if p.is_dir() { fs::remove_dir_all(&p)? } else { fs::remove_file(&p)? }
+        if p.is_dir() {
+            fs::remove_dir_all(&p)?
+        } else {
+            fs::remove_file(&p)?
+        }
     }
     Ok(())
 }
@@ -39,8 +43,18 @@ const RETURN_PATH: &[u8] = b"return-path:";
 
 /// Write prefix + body to a new file at `path` (0600, must not exist), check that the body was
 /// exactly `expected` bytes, fsync. Returns the file length. On any error the file is removed.
-pub(crate) fn write_tmp(path: &Path, prefix: Prefix, body: &mut dyn Read, expected: u64, capture: bool) -> Result<(u64,Vec<u8>), StoreError> {
-    let file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+pub(crate) fn write_tmp(
+    path: &Path,
+    prefix: Prefix,
+    body: &mut dyn Read,
+    expected: u64,
+    capture: bool,
+) -> Result<(u64, Vec<u8>), StoreError> {
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
     let r = fill(file, prefix, body, expected, capture);
     if r.is_err() {
         let _ = fs::remove_file(path);
@@ -48,7 +62,13 @@ pub(crate) fn write_tmp(path: &Path, prefix: Prefix, body: &mut dyn Read, expect
     r
 }
 
-fn fill(file: File, prefix: Prefix, body: &mut dyn Read, expected: u64, capture: bool) -> Result<(u64,Vec<u8>), StoreError> {
+fn fill(
+    file: File,
+    prefix: Prefix,
+    body: &mut dyn Read,
+    expected: u64,
+    capture: bool,
+) -> Result<(u64, Vec<u8>), StoreError> {
     // Never read more than one byte past the promised size: enough to detect a mismatch.
     let mut body = body.take(expected.saturating_add(1));
     let mut head = [0u8; RETURN_PATH.len()];
@@ -63,40 +83,53 @@ fn fill(file: File, prefix: Prefix, body: &mut dyn Read, expected: u64, capture:
     }
     let head = &head[..n];
     let prefix: &[u8] = match &prefix {
-        Prefix::ReturnPath(p) if !(head.len() == RETURN_PATH.len() && head.eq_ignore_ascii_case(RETURN_PATH)) => p,
+        Prefix::ReturnPath(p)
+            if !(head.len() == RETURN_PATH.len() && head.eq_ignore_ascii_case(RETURN_PATH)) =>
+        {
+            p
+        }
         Prefix::ReturnPath(_) => &[],
         Prefix::Always(p) => p,
     };
     let mut preview = Vec::new();
-    let mut w = BufWriter::with_capacity((expected as usize).clamp(1024,64*1024), file);
+    let mut w = BufWriter::with_capacity((expected as usize).clamp(1024, 64 * 1024), file);
     w.write_all(prefix)?;
     w.write_all(head)?;
     let preview_len = if capture {
         preview.extend_from_slice(head);
-        let n = (&mut body).take((32768-head.len()) as u64).read_to_end(&mut preview)?;
+        let n = (&mut body)
+            .take((32768 - head.len()) as u64)
+            .read_to_end(&mut preview)?;
         w.write_all(&preview[head.len()..])?;
         n
-    } else { 0 };
+    } else {
+        0
+    };
     let rest = io::copy(&mut body, &mut w)?;
-    let actual = (head.len()+preview_len) as u64 + rest;
+    let actual = (head.len() + preview_len) as u64 + rest;
     if actual != expected {
         return Err(StoreError::SizeMismatch { expected, actual });
     }
     let file = w.into_inner().map_err(|e| e.into_error())?;
     file.sync_all()?;
-    Ok((prefix.len() as u64 + actual,preview))
+    Ok((prefix.len() as u64 + actual, preview))
 }
 
 /// Rename `tmp` to `dest` (both on the data dir's file system), creating missing directories
 /// below `root`, then fsync the directories whose entries changed.
 pub(crate) fn install(tmp: &Path, dest: &Path, root: &Path) -> io::Result<()> {
-    let parent = dest.parent().ok_or_else(|| io::Error::other("blob path has no parent"))?;
+    let parent = dest
+        .parent()
+        .ok_or_else(|| io::Error::other("blob path has no parent"))?;
     let created = !parent.is_dir();
     if created {
         mkdirs(parent)?;
     }
     if dest.exists() {
-        return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{} exists", dest.display())));
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} exists", dest.display()),
+        ));
     }
     fs::rename(tmp, dest)?;
     fsync_dir(parent)?;

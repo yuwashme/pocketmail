@@ -7,8 +7,7 @@ use mail_parser::{MessagePart, MessageRef};
 
 use super::wire;
 
-// ---- header blocks ---------------------------------------------------------------------------
-
+// header blocks
 /// Length of the header block of `raw`, through the first blank line (CRLF or bare LF). No blank
 /// line: the whole message is header and the text is empty.
 pub(crate) fn header_len(raw: &[u8]) -> Option<usize> {
@@ -76,7 +75,11 @@ pub(crate) fn fields(block: &[u8]) -> impl Iterator<Item = Field<'_>> {
             let raw = &block[pos..end];
             pos = end;
             if let Some(c) = raw.iter().position(|&b| b == b':') {
-                return Some(Field { name: trim(&raw[..c]), raw, value: &raw[c + 1..] });
+                return Some(Field {
+                    name: trim(&raw[..c]),
+                    raw,
+                    value: &raw[c + 1..],
+                });
             }
         }
     })
@@ -84,18 +87,30 @@ pub(crate) fn fields(block: &[u8]) -> impl Iterator<Item = Field<'_>> {
 
 /// The unfolded, trimmed value of the first field called `name`.
 pub(crate) fn header_value(block: &[u8], name: &str) -> Option<Vec<u8>> {
-    fields(block).find(|f| f.name.eq_ignore_ascii_case(name.as_bytes())).map(|f| unfold(f.value))
+    fields(block)
+        .find(|f| f.name.eq_ignore_ascii_case(name.as_bytes()))
+        .map(|f| unfold(f.value))
 }
 
 /// Remove the CR and LF of folding, then surrounding white space.
 pub(crate) fn unfold(v: &[u8]) -> Vec<u8> {
-    let v: Vec<u8> = v.iter().copied().filter(|&b| b != b'\r' && b != b'\n').collect();
+    let v: Vec<u8> = v
+        .iter()
+        .copied()
+        .filter(|&b| b != b'\r' && b != b'\n')
+        .collect();
     trim(&v).to_vec()
 }
 
 fn trim(v: &[u8]) -> &[u8] {
-    let s = v.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(v.len());
-    let e = v.iter().rposition(|b| !b.is_ascii_whitespace()).map_or(s, |e| e + 1);
+    let s = v
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(v.len());
+    let e = v
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map_or(s, |e| e + 1);
     &v[s..e]
 }
 
@@ -120,12 +135,15 @@ pub(crate) fn lines(b: &[u8]) -> usize {
     b.iter().filter(|&&c| c == b'\n').count()
 }
 
-// ---- ENVELOPE --------------------------------------------------------------------------------
-
+// ENVELOPE
 /// `(date subject from sender reply-to to cc bcc in-reply-to message-id)` of a header block.
 pub(crate) fn envelope(out: &mut Vec<u8>, head: &[u8]) {
     let get = |n: &str| header_value(head, n);
-    let addrs = |n: &str| get(n).map(|v| parse_addresses(&v)).filter(|l| !l.is_empty());
+    let addrs = |n: &str| {
+        get(n)
+            .map(|v| parse_addresses(&v))
+            .filter(|l| !l.is_empty())
+    };
     out.push(b'(');
     wire::nstring(out, get("Date").as_deref());
     out.push(b' ');
@@ -133,7 +151,14 @@ pub(crate) fn envelope(out: &mut Vec<u8>, head: &[u8]) {
     let from = addrs("From");
     let sender = addrs("Sender").or_else(|| from.clone());
     let reply_to = addrs("Reply-To").or_else(|| from.clone());
-    for list in [&from, &sender, &reply_to, &addrs("To"), &addrs("Cc"), &addrs("Bcc")] {
+    for list in [
+        &from,
+        &sender,
+        &reply_to,
+        &addrs("To"),
+        &addrs("Cc"),
+        &addrs("Bcc"),
+    ] {
         out.push(b' ');
         address_list(out, list.as_deref());
     }
@@ -146,7 +171,11 @@ pub(crate) fn envelope(out: &mut Vec<u8>, head: &[u8]) {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Addr {
-    Mailbox { name: Option<Vec<u8>>, mailbox: Vec<u8>, host: Option<Vec<u8>> },
+    Mailbox {
+        name: Option<Vec<u8>>,
+        mailbox: Vec<u8>,
+        host: Option<Vec<u8>>,
+    },
     GroupStart(Vec<u8>),
     GroupEnd,
 }
@@ -159,7 +188,11 @@ fn address_list(out: &mut Vec<u8>, list: Option<&[Addr]>) {
     out.push(b'(');
     for a in list {
         match a {
-            Addr::Mailbox { name, mailbox, host } => {
+            Addr::Mailbox {
+                name,
+                mailbox,
+                host,
+            } => {
                 out.push(b'(');
                 wire::nstring(out, name.as_deref());
                 out.extend_from_slice(b" NIL ");
@@ -228,7 +261,10 @@ fn lex(s: &[u8]) -> Vec<Tok> {
                 t.push(Tok::Quoted(v));
             }
             b'[' => {
-                let e = s[i..].iter().position(|&b| b == b']').map_or(s.len(), |p| i + p + 1);
+                let e = s[i..]
+                    .iter()
+                    .position(|&b| b == b']')
+                    .map_or(s.len(), |p| i + p + 1);
                 t.push(Tok::DomainLit(s[i..e].to_vec()));
                 i = e;
             }
@@ -262,7 +298,9 @@ fn parse_addresses(v: &[u8]) -> Vec<Addr> {
             i += 1;
             continue;
         }
-        let j = (i..t.len()).find(|&k| is_sp(t.get(k), b":<@,;")).unwrap_or(t.len());
+        let j = (i..t.len())
+            .find(|&k| is_sp(t.get(k), b":<@,;"))
+            .unwrap_or(t.len());
         if is_sp(t.get(j), b":") {
             out.push(Addr::GroupStart(phrase(&t[i..j]).unwrap_or_default()));
             i = j + 1;
@@ -287,9 +325,13 @@ fn parse_addresses(v: &[u8]) -> Vec<Addr> {
 /// A name-addr or addr-spec starting at `t[*i]`; advances past it.
 fn mailbox(t: &[Tok], i: &mut usize) -> Option<Addr> {
     let start = *i;
-    let k = (start..t.len()).find(|&k| is_sp(t.get(k), b",;<")).unwrap_or(t.len());
+    let k = (start..t.len())
+        .find(|&k| is_sp(t.get(k), b",;<"))
+        .unwrap_or(t.len());
     let (name, spec) = if is_sp(t.get(k), b"<") {
-        let e = (k + 1..t.len()).find(|&e| is_sp(t.get(e), b">,;")).unwrap_or(t.len());
+        let e = (k + 1..t.len())
+            .find(|&e| is_sp(t.get(e), b">,;"))
+            .unwrap_or(t.len());
         *i = if is_sp(t.get(e), b">") { e + 1 } else { e };
         let mut spec = &t[k + 1..e];
         // obs-route: "<@a,@b:user@host>"
@@ -320,8 +362,14 @@ fn mailbox(t: &[Tok], i: &mut usize) -> Option<Addr> {
         return None;
     }
     // A bare word without a domain would read as a group start (host NIL): mark it like Dovecot.
-    let host = host.filter(|h| !h.is_empty()).or_else(|| Some(b"MISSING_DOMAIN".to_vec()));
-    Some(Addr::Mailbox { name, mailbox, host })
+    let host = host
+        .filter(|h| !h.is_empty())
+        .or_else(|| Some(b"MISSING_DOMAIN".to_vec()));
+    Some(Addr::Mailbox {
+        name,
+        mailbox,
+        host,
+    })
 }
 
 /// Display-name words joined by one space; None when empty.
@@ -340,8 +388,7 @@ fn phrase(t: &[Tok]) -> Option<Vec<u8>> {
     (!v.is_empty()).then_some(v)
 }
 
-// ---- BODY / BODYSTRUCTURE --------------------------------------------------------------------
-
+// BODY / BODYSTRUCTURE
 /// A Content-Type or Content-Disposition value: the main token and its parameters (names as
 /// written, values unquoted).
 struct Typed {
@@ -437,10 +484,18 @@ fn part_head(block: &[u8], default_message: bool) -> PartHead {
     let (ctype, subtype, params) = match ct {
         Some(t) if t.main.contains(&b'/') => {
             let slash = t.main.iter().position(|&b| b == b'/').unwrap_or(0);
-            (upper(trim(&t.main[..slash])), upper(trim(&t.main[slash + 1..])), t.params)
+            (
+                upper(trim(&t.main[..slash])),
+                upper(trim(&t.main[slash + 1..])),
+                t.params,
+            )
         }
         _ if default_message => (b"MESSAGE".to_vec(), b"RFC822".to_vec(), Vec::new()),
-        _ => (b"TEXT".to_vec(), b"PLAIN".to_vec(), vec![(b"CHARSET".to_vec(), b"US-ASCII".to_vec())]),
+        _ => (
+            b"TEXT".to_vec(),
+            b"PLAIN".to_vec(),
+            vec![(b"CHARSET".to_vec(), b"US-ASCII".to_vec())],
+        ),
     };
     PartHead {
         ctype,
@@ -448,9 +503,14 @@ fn part_head(block: &[u8], default_message: bool) -> PartHead {
         params,
         id: header_value(block, "Content-ID"),
         description: header_value(block, "Content-Description"),
-        encoding: header_value(block, "Content-Transfer-Encoding").map(|v| upper(&v)).filter(|v| !v.is_empty()).unwrap_or_else(|| b"7BIT".to_vec()),
+        encoding: header_value(block, "Content-Transfer-Encoding")
+            .map(|v| upper(&v))
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| b"7BIT".to_vec()),
         md5: header_value(block, "Content-MD5"),
-        disposition: header_value(block, "Content-Disposition").map(|v| parse_typed(&v)).filter(|t| !t.main.is_empty()),
+        disposition: header_value(block, "Content-Disposition")
+            .map(|v| parse_typed(&v))
+            .filter(|t| !t.main.is_empty()),
         language: header_value(block, "Content-Language"),
         location: header_value(block, "Content-Location"),
     }
@@ -478,7 +538,12 @@ fn ext_tail(out: &mut Vec<u8>, h: &PartHead, md5: bool) {
         None => out.extend_from_slice(b"NIL"),
         Some(l) => {
             out.push(b'(');
-            for (n, tag) in l.split(|&b| b == b',').map(trim).filter(|t| !t.is_empty()).enumerate() {
+            for (n, tag) in l
+                .split(|&b| b == b',')
+                .map(trim)
+                .filter(|t| !t.is_empty())
+                .enumerate()
+            {
                 if n > 0 {
                     out.push(b' ');
                 }
@@ -497,7 +562,13 @@ pub(crate) fn body(out: &mut Vec<u8>, m: MessageRef<'_>, text: Option<&[u8]>, ex
     part(out, &m.root_part(), text, extensible, false);
 }
 
-fn part(out: &mut Vec<u8>, p: &MessagePart<'_>, body_override: Option<&[u8]>, ext: bool, in_digest: bool) {
+fn part(
+    out: &mut Vec<u8>,
+    p: &MessagePart<'_>,
+    body_override: Option<&[u8]>,
+    ext: bool,
+    in_digest: bool,
+) {
     let h = part_head(p.raw_headers(), in_digest);
     if p.is_multipart() {
         out.push(b'(');
@@ -533,12 +604,20 @@ fn part(out: &mut Vec<u8>, p: &MessagePart<'_>, body_override: Option<&[u8]>, ex
     out.push(b' ');
     wire::string(out, &h.encoding);
     out.extend_from_slice(format!(" {}", raw.len()).as_bytes());
-    let nested = p.nested().filter(|_| h.ctype == b"MESSAGE" && h.subtype == b"RFC822");
+    let nested = p
+        .nested()
+        .filter(|_| h.ctype == b"MESSAGE" && h.subtype == b"RFC822");
     if let Some(m) = nested {
         out.push(b' ');
         envelope(out, split(m.raw()).0);
         out.push(b' ');
-        part(out, &m.root_part(), (!m.root_part().is_multipart()).then(|| split(m.raw()).1), ext, false);
+        part(
+            out,
+            &m.root_part(),
+            (!m.root_part().is_multipart()).then(|| split(m.raw()).1),
+            ext,
+            false,
+        );
         out.extend_from_slice(format!(" {}", lines(raw)).as_bytes());
     } else if h.ctype == b"TEXT" {
         out.extend_from_slice(format!(" {}", lines(raw)).as_bytes());
@@ -573,7 +652,10 @@ mod tests {
         let h = b"A: 1\r\nB: 2\r\n  more\r\nc: 3\r\n\r\nbody: x\r\n";
         let names: Vec<_> = fields(h).map(|f| f.name.to_vec()).collect();
         assert_eq!(names, vec![b"A".to_vec(), b"B".to_vec(), b"c".to_vec()]);
-        assert_eq!(filter_fields(h, &[b"b", b"C"], false), b"B: 2\r\n  more\r\nc: 3\r\n\r\n");
+        assert_eq!(
+            filter_fields(h, &[b"b", b"C"], false),
+            b"B: 2\r\n  more\r\nc: 3\r\n\r\n"
+        );
         assert_eq!(filter_fields(h, &[b"b", b"C"], true), b"A: 1\r\n\r\n");
         assert_eq!(header_value(h, "b").unwrap(), b"2  more");
     }
@@ -588,11 +670,18 @@ mod tests {
         );
         assert_eq!(
             parse_addresses(b"undisclosed-recipients:;"),
-            vec![Addr::GroupStart(b"undisclosed-recipients".to_vec()), Addr::GroupEnd]
+            vec![
+                Addr::GroupStart(b"undisclosed-recipients".to_vec()),
+                Addr::GroupEnd
+            ]
         );
         assert_eq!(
             parse_addresses(b"<@route:a@b>"),
-            vec![Addr::Mailbox { name: None, mailbox: b"a".to_vec(), host: Some(b"b".to_vec()) }]
+            vec![Addr::Mailbox {
+                name: None,
+                mailbox: b"a".to_vec(),
+                host: Some(b"b".to_vec())
+            }]
         );
         assert_eq!(parse_addresses(b""), vec![]);
         assert_eq!(parse_addresses(b"<>"), vec![]);

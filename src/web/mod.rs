@@ -18,10 +18,10 @@ use crate::store::Store;
 use http::{Method, Request, Response};
 
 mod admin;
-mod inbox;
 mod compose;
 pub mod html;
 pub mod http;
+mod inbox;
 mod pages;
 pub mod session;
 mod setup;
@@ -92,16 +92,29 @@ pub struct WebServer {
 impl WebServer {
     /// Spawn the accept loop on the current tokio runtime and return at once. `clock` drives
     /// every timer.
-    pub fn start(listener: TcpListener, store: Arc<Store>, config: WebConfig, clock: Arc<dyn Clock>) -> io::Result<WebServer> {
+    pub fn start(
+        listener: TcpListener,
+        store: Arc<Store>,
+        config: WebConfig,
+        clock: Arc<dyn Clock>,
+    ) -> io::Result<WebServer> {
         let addr = listener.local_addr()?;
         if config.mailbox_only && !addr.ip().is_loopback() {
-            return Err(io::Error::other("tunnel origin requires a loopback listener"));
+            return Err(io::Error::other(
+                "tunnel origin requires a loopback listener",
+            ));
         }
         let allowed = (!config.allow_public).then_some(config.is_allowed);
-        let limits = Limits { max_conn: config.max_conn, max_conn_per_ip: config.max_conn_per_ip, allowed };
+        let limits = Limits {
+            max_conn: config.max_conn,
+            max_conn_per_ip: config.max_conn_per_ip,
+            allowed,
+        };
         let (tls, handshake_timeout) = (config.tls.clone(), config.handshake_timeout);
         let (config, conn_clock) = (Arc::new(config), clock.clone());
-        let has_admin = store.has_active_admin().map_err(|e| io::Error::other(e.to_string()))?;
+        let has_admin = store
+            .has_active_admin()
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let (link, setup) = match has_admin || config.mailbox_only {
             true => (None, None),
             false => {
@@ -110,9 +123,15 @@ impl WebServer {
             }
         };
         let app = Arc::new(pages::App::new(store, clock.clone(), link));
-        tokio::spawn(listener::accept_loop("web", listener, tls, limits, handshake_timeout, clock, move |tls, peer| {
-            serve(tls, peer, config.clone(), conn_clock.clone(), app.clone())
-        }));
+        tokio::spawn(listener::accept_loop(
+            "web",
+            listener,
+            tls,
+            limits,
+            handshake_timeout,
+            clock,
+            move |tls, peer| serve(tls, peer, config.clone(), conn_clock.clone(), app.clone()),
+        ));
         Ok(WebServer { addr, setup })
     }
 
@@ -135,7 +154,13 @@ enum Head {
     Gone,
 }
 
-async fn serve(mut tls: Conn, peer: SocketAddr, config: Arc<WebConfig>, clock: Arc<dyn Clock>, app: Arc<pages::App>) {
+async fn serve(
+    mut tls: Conn,
+    peer: SocketAddr,
+    config: Arc<WebConfig>,
+    clock: Arc<dyn Clock>,
+    app: Arc<pages::App>,
+) {
     let mut buf = Vec::new();
     for n in 1..=config.max_requests {
         if n > 1 && buf.is_empty() {
@@ -158,7 +183,10 @@ async fn serve(mut tls: Conn, peer: SocketAddr, config: Arc<WebConfig>, clock: A
             // Behind a proxy the peer address is the proxy's, so the home-network check says nothing.
             Some(Head::Request(req, _)) if req.proxied && !config.allow_public => {
                 crate::log_debug!("web: {} refused: a request through a proxy", peer.ip());
-                Err((Response::error_because(403, PROXIED), req.method == Method::Head))
+                Err((
+                    Response::error_because(403, PROXIED),
+                    req.method == Method::Head,
+                ))
             }
             Some(Head::Request(req, len)) => Ok((req, len)),
             Some(Head::Refused(status)) => Err((Response::error(status), false)),
@@ -179,7 +207,15 @@ async fn serve(mut tls: Conn, peer: SocketAddr, config: Arc<WebConfig>, clock: A
             };
             match body {
                 None => {
-                    respond(&mut tls, &clock, &config, &Response::error(408), false, true).await;
+                    respond(
+                        &mut tls,
+                        &clock,
+                        &config,
+                        &Response::error(408),
+                        false,
+                        true,
+                    )
+                    .await;
                     return;
                 }
                 Some(false) => return,
@@ -187,14 +223,30 @@ async fn serve(mut tls: Conn, peer: SocketAddr, config: Arc<WebConfig>, clock: A
             }
         }
         let response = if config.mailbox_only {
-            inbox::route(&app, &req, &buf[len..end], req.cf_client.unwrap_or(peer.ip())).await
+            inbox::route(
+                &app,
+                &req,
+                &buf[len..end],
+                req.cf_client.unwrap_or(peer.ip()),
+            )
+            .await
         } else {
             route(&app, &req, &buf[len..end], peer.ip()).await
         };
         buf.drain(..end);
 
         let close = !req.keep_alive || n == config.max_requests;
-        if !respond(&mut tls, &clock, &config, &response, req.method == Method::Head, close).await || close {
+        if !respond(
+            &mut tls,
+            &clock,
+            &config,
+            &response,
+            req.method == Method::Head,
+            close,
+        )
+        .await
+            || close
+        {
             return;
         }
     }
@@ -244,12 +296,25 @@ async fn fill(tls: &mut Conn, buf: &mut Vec<u8>, end: usize) -> bool {
 
 /// Write `response` (and with `close`, end the TLS session) within the head timeout. False if
 /// the client is gone or too slow.
-async fn respond(tls: &mut Conn, clock: &Arc<dyn Clock>, config: &WebConfig, response: &Response, head_only: bool, close: bool) -> bool {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+async fn respond(
+    tls: &mut Conn,
+    clock: &Arc<dyn Clock>,
+    config: &WebConfig,
+    response: &Response,
+    head_only: bool,
+    close: bool,
+) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
     let bytes = response.encode(head_only, close, &crate::time::format_http_date(now));
     let write = async {
         tls.write_all(&bytes).await?;
-        if close { tls.shutdown().await } else { tls.flush().await }
+        if close {
+            tls.shutdown().await
+        } else {
+            tls.flush().await
+        }
     };
     tokio::select! {
         written = write => written.is_ok(),

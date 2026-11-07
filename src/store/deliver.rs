@@ -33,9 +33,15 @@ pub struct Delivery<'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DeliveryOutcome {
-    Delivered { account: AccountId, mailbox: MailboxId, uid: u32 },
+    Delivered {
+        account: AccountId,
+        mailbox: MailboxId,
+        uid: u32,
+    },
     /// Absolute path under <data>/unrouted/.
-    Quarantined { path: PathBuf },
+    Quarantined {
+        path: PathBuf,
+    },
     /// Key already in `handoff`: just ack again.
     AlreadyDelivered,
     ForwardQueued,
@@ -58,20 +64,34 @@ fn header_safe(s: &str) -> String {
 }
 
 impl Store {
-    pub fn deliver(&self, d: &Delivery<'_>, body: &mut dyn Read) -> Result<DeliveryOutcome, StoreError> {
+    pub fn deliver(
+        &self,
+        d: &Delivery<'_>,
+        body: &mut dyn Read,
+    ) -> Result<DeliveryOutcome, StoreError> {
         self.deliver_with_summary(d, body, None)
     }
 
     /// A local composer already knows the decoded headers of the MIME it generated.
-    pub(crate) fn deliver_with_summary(&self, d: &Delivery<'_>, body: &mut dyn Read, known: Option<(AccountId,&str,&str)>) -> Result<DeliveryOutcome,StoreError> {
+    pub(crate) fn deliver_with_summary(
+        &self,
+        d: &Delivery<'_>,
+        body: &mut dyn Read,
+        known: Option<(AccountId, &str, &str)>,
+    ) -> Result<DeliveryOutcome, StoreError> {
         if known.is_none() && self.is_delivered(d.key)? {
             return Ok(DeliveryOutcome::AlreadyDelivered);
         }
-        let account = match known { Some((id,_,_)) => Some(id), None => self.route(d.envelope_to)? };
+        let account = match known {
+            Some((id, _, _)) => Some(id),
+            None => self.route(d.envelope_to)?,
+        };
         let name = blob::name(d.received_ms)?;
         let tmp = self.dir.join("tmp").join(&name);
         let prefix = match account {
-            Some(_) => Prefix::ReturnPath(format!("Return-Path: <{}>\r\n", header_safe(d.envelope_from)).into_bytes()),
+            Some(_) => Prefix::ReturnPath(
+                format!("Return-Path: <{}>\r\n", header_safe(d.envelope_from)).into_bytes(),
+            ),
             // Quarantine keeps the envelope, which is otherwise lost once the Worker copy is acked.
             None => Prefix::Always(
                 format!(
@@ -82,24 +102,41 @@ impl Store {
                 .into_bytes(),
             ),
         };
-        let (size, preview) = blob::write_tmp(&tmp, prefix, body, d.expected_size, known.is_none())?;
+        let (size, preview) =
+            blob::write_tmp(&tmp, prefix, body, d.expected_size, known.is_none())?;
         failpoint!(self, AfterTmpWrite);
 
-        let Some(account) = account else { return self.quarantine(d, &tmp, &name) };
+        let Some(account) = account else {
+            return self.quarantine(d, &tmp, &name);
+        };
 
-        let rel = format!("blobs/{}/{}/{}", account.0, yyyymm(d.received_ms.div_euclid(1000)), name);
+        let rel = format!(
+            "blobs/{}/{}/{}",
+            account.0,
+            yyyymm(d.received_ms.div_euclid(1000)),
+            name
+        );
         let dest = self.dir.join(&rel);
         blob::install(&tmp, &dest, &self.dir.join("blobs"))?;
         failpoint!(self, AfterRename);
 
         let parsed;
-        let (sender,subject) = match known {
-            Some((_,sender,subject)) => (sender,subject),
-            None => { parsed = super::summary(&preview); (parsed.0.as_str(), parsed.1.as_str()) }
+        let (sender, subject) = match known {
+            Some((_, sender, subject)) => (sender, subject),
+            None => {
+                parsed = super::summary(&preview);
+                (parsed.0.as_str(), parsed.1.as_str())
+            }
         };
         let mut c = self.writer();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if known.is_none() && tx.prepare_cached("SELECT 1 FROM handoff WHERE key = ?")?.query_row([d.key], |_| Ok(())).optional()?.is_some() {
+        if known.is_none()
+            && tx
+                .prepare_cached("SELECT 1 FROM handoff WHERE key = ?")?
+                .query_row([d.key], |_| Ok(()))
+                .optional()?
+                .is_some()
+        {
             // Delivered concurrently since the check above; this copy was never committed.
             drop(tx);
             let _ = fs::remove_file(&dest);
@@ -114,10 +151,15 @@ impl Store {
         let Some((mailbox, uid, highest, fits, forward_to, keep_copy)) = inbox else {
             drop(tx);
             let _ = fs::remove_file(&dest);
-            return Err(StoreError::NotFound(format!("INBOX of account {}", account.0)));
+            return Err(StoreError::NotFound(format!(
+                "INBOX of account {}",
+                account.0
+            )));
         };
-        let forward = forward_to.filter(|_| !d.envelope_from.is_empty()
-            && (known.is_some() || super::preferences::forwardable_headers(&preview)));
+        let forward = forward_to.filter(|_| {
+            !d.envelope_from.is_empty()
+                && (known.is_some() || super::preferences::forwardable_headers(&preview))
+        });
         // Loop-suppressed messages are kept locally so suppressing a forward cannot discard mail.
         let direct = !keep_copy && forward.is_some();
         if !fits && !direct {
@@ -126,18 +168,25 @@ impl Store {
             return Err(StoreError::QuotaExceeded);
         }
         if !direct {
-        let modseq = highest + 1;
-        tx.prepare_cached(
+            let modseq = highest + 1;
+            tx.prepare_cached(
             "INSERT INTO messages(mailbox_id, uid, blob, size, internal_date, flags, modseq, sender, subject) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)")?.execute(
             params![mailbox, uid, rel, size as i64, d.received_ms.div_euclid(1000), modseq, sender, subject],
         )?;
-        tx.prepare_cached("UPDATE mailboxes SET uidnext = ?, highest_modseq = ?, used_bytes=used_bytes+? WHERE id = ?")?.execute(params![uid + 1, modseq, size as i64, mailbox])?;
+            tx.prepare_cached("UPDATE mailboxes SET uidnext = ?, highest_modseq = ?, used_bytes=used_bytes+? WHERE id = ?")?.execute(params![uid + 1, modseq, size as i64, mailbox])?;
         }
         // Only Worker hand-offs can be retried with the same key. Local compose generates
         // a fresh Message-ID per POST; indexing it here cannot suppress repeated POSTs.
         if known.is_none() {
-            tx.prepare_cached("INSERT INTO handoff(key, delivered_at, mailbox_id, uid) VALUES (?, ?, ?, ?)")?
-                .execute(params![d.key, now_unix(), (!direct).then_some(mailbox), (!direct).then_some(uid)])?;
+            tx.prepare_cached(
+                "INSERT INTO handoff(key, delivered_at, mailbox_id, uid) VALUES (?, ?, ?, ?)",
+            )?
+            .execute(params![
+                d.key,
+                now_unix(),
+                (!direct).then_some(mailbox),
+                (!direct).then_some(uid)
+            ])?;
         }
 
         if let Some(to) = &forward {
@@ -150,33 +199,57 @@ impl Store {
                 fs::remove_file(&dest)?;
                 return Err(StoreError::ForwardQueueFull);
             }
-            let state = if allowed {"Queued"} else {"Limit reached"};
+            let state = if allowed { "Queued" } else { "Limit reached" };
             tx.execute("INSERT INTO outbox(account,sender,recipient,forward_blob,state,created,due,mime,queue_only)
                 VALUES(?, '', ?, ?, ?, ?, ?, ?, ?)", params![account.0,to,allowed.then_some(&rel),state,now,now,
                     allowed.then_some(subject.as_bytes()),direct])?;
         }
         failpoint!(self, BeforeCommit);
         tx.commit()?;
-        if forward.is_some() { self.outbox_ready.notify_one(); }
-        if direct { return Ok(DeliveryOutcome::ForwardQueued); }
-        Ok(DeliveryOutcome::Delivered { account, mailbox: MailboxId(mailbox), uid })
+        if forward.is_some() {
+            self.outbox_ready.notify_one();
+        }
+        if direct {
+            return Ok(DeliveryOutcome::ForwardQueued);
+        }
+        Ok(DeliveryOutcome::Delivered {
+            account,
+            mailbox: MailboxId(mailbox),
+            uid,
+        })
     }
 
     /// Unknown recipient: move to unrouted/, record the key with NULL ids, log a warning.
-    fn quarantine(&self, d: &Delivery<'_>, tmp: &std::path::Path, name: &str) -> Result<DeliveryOutcome, StoreError> {
+    fn quarantine(
+        &self,
+        d: &Delivery<'_>,
+        tmp: &std::path::Path,
+        name: &str,
+    ) -> Result<DeliveryOutcome, StoreError> {
         let unrouted = self.dir.join("unrouted");
         let dest = unrouted.join(name);
         blob::install(tmp, &dest, &unrouted)?;
         let mut c = self.writer();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if tx.query_row("SELECT 1 FROM handoff WHERE key = ?", [d.key], |_| Ok(())).optional()?.is_some() {
+        if tx
+            .query_row("SELECT 1 FROM handoff WHERE key = ?", [d.key], |_| Ok(()))
+            .optional()?
+            .is_some()
+        {
             drop(tx);
             let _ = fs::remove_file(&dest);
             return Ok(DeliveryOutcome::AlreadyDelivered);
         }
-        tx.execute("INSERT INTO handoff(key, delivered_at, mailbox_id, uid) VALUES (?, ?, NULL, NULL)", params![d.key, now_unix()])?;
+        tx.execute(
+            "INSERT INTO handoff(key, delivered_at, mailbox_id, uid) VALUES (?, ?, NULL, NULL)",
+            params![d.key, now_unix()],
+        )?;
         tx.commit()?;
-        crate::log_warn!("no route for envelope recipient {:?}: quarantined as unrouted/{}", header_safe(d.envelope_to), name);
+        crate::log_warn!(
+            "no route for envelope recipient {:?}: quarantined as unrouted/{}",
+            header_safe(d.envelope_to),
+            name
+        );
         Ok(DeliveryOutcome::Quarantined { path: dest })
     }
 }

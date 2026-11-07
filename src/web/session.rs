@@ -54,7 +54,8 @@ fn unhex(s: &str) -> Option<[u8; 32]> {
 
 /// Equal length and contents, in time that depends only on the length.
 pub fn same(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && std::hint::black_box(a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y))) == 0
+    a.len() == b.len()
+        && std::hint::black_box(a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y))) == 0
 }
 
 /// What a request's session gives the pages.
@@ -98,7 +99,17 @@ impl Sessions {
         }
         t.uses += 1;
         let used = t.uses;
-        t.map.insert(sha256(&id), Entry { account, stamp, csrf: random(), created: now, seen: now, used });
+        t.map.insert(
+            sha256(&id),
+            Entry {
+                account,
+                stamp,
+                csrf: random(),
+                created: now,
+                seen: now,
+                used,
+            },
+        );
         hex(&id)
     }
 
@@ -114,7 +125,11 @@ impl Sessions {
             return None;
         }
         (e.seen, e.used) = (now, used);
-        Some(Session { account: e.account, stamp: e.stamp, csrf: hex(&e.csrf) })
+        Some(Session {
+            account: e.account,
+            stamp: e.stamp,
+            csrf: hex(&e.csrf),
+        })
     }
 
     /// Keep the session after its own password change gave the account a new stamp.
@@ -156,7 +171,9 @@ struct Counts<K> {
 
 impl<K> Default for Counts<K> {
     fn default() -> Counts<K> {
-        Counts { map: HashMap::new() }
+        Counts {
+            map: HashMap::new(),
+        }
     }
 }
 
@@ -170,14 +187,24 @@ impl<K: std::hash::Hash + Eq + Copy> Counts<K> {
         if !self.map.contains_key(&key) && self.map.len() >= CAP {
             self.map.retain(|_, c| now.saturating_sub(c.since) < WINDOW);
             if self.map.len() >= CAP
-                && let Some(oldest) = self.map.iter().min_by_key(|(_, c)| c.since).map(|(k, _)| *k)
+                && let Some(oldest) = self
+                    .map
+                    .iter()
+                    .min_by_key(|(_, c)| c.since)
+                    .map(|(k, _)| *k)
             {
                 self.map.remove(&oldest);
             }
         }
-        let c = self.map.entry(key).or_insert(Count { since: now, failures: 0 });
+        let c = self.map.entry(key).or_insert(Count {
+            since: now,
+            failures: 0,
+        });
         if now.saturating_sub(c.since) >= WINDOW {
-            *c = Count { since: now, failures: 0 };
+            *c = Count {
+                since: now,
+                failures: 0,
+            };
         }
         c.failures += 1;
         if c.failures == limit {
@@ -202,7 +229,9 @@ impl Limiter {
     pub fn locked(&self, ip: IpAddr, login: &str, now: Duration) -> Option<Duration> {
         let t = crate::store::lock(&self.0);
         let by_ip = t.ips.left(&ip_key(ip), IP_FAILURES, now);
-        let by_login = t.logins.left(&sha256(login.as_bytes()), LOGIN_FAILURES, now);
+        let by_login = t
+            .logins
+            .left(&sha256(login.as_bytes()), LOGIN_FAILURES, now);
         by_ip.max(by_login)
     }
 
@@ -214,7 +243,10 @@ impl Limiter {
 
     /// Clears the login's count only: the IP's count also holds the other logins tried from it.
     pub fn succeeded(&self, _ip: IpAddr, login: &str) {
-        crate::store::lock(&self.0).logins.map.remove(&sha256(login.as_bytes()));
+        crate::store::lock(&self.0)
+            .logins
+            .map
+            .remove(&sha256(login.as_bytes()));
     }
 }
 
@@ -235,26 +267,60 @@ mod tests {
         for i in 1..=9 {
             l.failed(ip(&format!("192.168.1.{i}")), LOGIN, T0);
         }
-        assert_eq!(l.locked(ip("192.168.1.50"), LOGIN, T0), None, "nine failures do not lock");
+        assert_eq!(
+            l.locked(ip("192.168.1.50"), LOGIN, T0),
+            None,
+            "nine failures do not lock"
+        );
         l.failed(ip("192.168.1.10"), LOGIN, T0);
-        assert_eq!(l.locked(ip("192.168.1.50"), LOGIN, T0), Some(WINDOW), "ten lock the login from a new IP");
-        assert_eq!(l.locked(ip("192.168.1.50"), "other@example.com", T0), None, "other logins are not locked");
-        assert_eq!(l.locked(ip("192.168.1.50"), LOGIN, T0 + WINDOW), None, "the lock ends after the window");
+        assert_eq!(
+            l.locked(ip("192.168.1.50"), LOGIN, T0),
+            Some(WINDOW),
+            "ten lock the login from a new IP"
+        );
+        assert_eq!(
+            l.locked(ip("192.168.1.50"), "other@example.com", T0),
+            None,
+            "other logins are not locked"
+        );
+        assert_eq!(
+            l.locked(ip("192.168.1.50"), LOGIN, T0 + WINDOW),
+            None,
+            "the lock ends after the window"
+        );
     }
 
     #[test]
     fn ipv6_counted_per_64() {
         let l = Limiter::default();
         for i in 1..=5 {
-            l.failed(ip(&format!("fd00:1:2:3::{i}")), &format!("u{i}@example.com"), T0);
+            l.failed(
+                ip(&format!("fd00:1:2:3::{i}")),
+                &format!("u{i}@example.com"),
+                T0,
+            );
         }
-        assert!(l.locked(ip("fd00:1:2:3:ffff::1"), LOGIN, T0).is_some(), "the same /64 is locked");
-        assert_eq!(l.locked(ip("fd00:1:2:4::1"), LOGIN, T0), None, "another /64 is not");
+        assert!(
+            l.locked(ip("fd00:1:2:3:ffff::1"), LOGIN, T0).is_some(),
+            "the same /64 is locked"
+        );
+        assert_eq!(
+            l.locked(ip("fd00:1:2:4::1"), LOGIN, T0),
+            None,
+            "another /64 is not"
+        );
         for i in 1..=5 {
             l.failed(ip("::ffff:192.168.1.9"), &format!("v{i}@example.com"), T0);
         }
-        assert!(l.locked(ip("192.168.1.9"), LOGIN, T0).is_some(), "an IPv4-mapped address is its IPv4 address");
-        assert_eq!(l.locked(ip("192.168.1.8"), LOGIN, T0), None, "IPv4 addresses count one by one");
+        assert!(
+            l.locked(ip("192.168.1.9"), LOGIN, T0).is_some(),
+            "an IPv4-mapped address is its IPv4 address"
+        );
+        assert_eq!(
+            l.locked(ip("192.168.1.8"), LOGIN, T0),
+            None,
+            "IPv4 addresses count one by one"
+        );
     }
 
     #[test]
@@ -265,22 +331,41 @@ mod tests {
         for i in 0..CAP as u64 - 2 {
             s.create(AccountId(1), 1, T0 + Duration::from_secs(2 + i));
         }
-        assert!(s.get(&first, T0 + Duration::from_secs(1000)).is_some(), "full, nothing dropped yet");
+        assert!(
+            s.get(&first, T0 + Duration::from_secs(1000)).is_some(),
+            "full, nothing dropped yet"
+        );
         s.create(AccountId(1), 1, T0 + Duration::from_secs(1001));
         assert_eq!(crate::store::lock(&s.0).map.len(), CAP);
-        assert!(s.get(&second, T0 + Duration::from_secs(1001)).is_none(), "the session seen longest ago is dropped");
-        assert!(s.get(&first, T0 + Duration::from_secs(1001)).is_some(), "a recently seen one stays");
+        assert!(
+            s.get(&second, T0 + Duration::from_secs(1001)).is_none(),
+            "the session seen longest ago is dropped"
+        );
+        assert!(
+            s.get(&first, T0 + Duration::from_secs(1001)).is_some(),
+            "a recently seen one stays"
+        );
 
         let l = Limiter::default();
         for i in 0..CAP as u32 + 1 {
             let at = T0 + Duration::from_millis(u64::from(i));
             let [_, _, a, b] = i.to_be_bytes();
-            l.failed(ip(&format!("10.0.{a}.{b}")), &format!("u{i}@example.com"), at);
+            l.failed(
+                ip(&format!("10.0.{a}.{b}")),
+                &format!("u{i}@example.com"),
+                at,
+            );
         }
         let t = crate::store::lock(&l.0);
         assert_eq!((t.ips.map.len(), t.logins.map.len()), (CAP, CAP));
-        assert!(!t.ips.map.contains_key(&ip("10.0.0.0")), "the oldest IP is dropped");
-        assert!(!t.logins.map.contains_key(&sha256(b"u0@example.com")), "the oldest login is dropped");
+        assert!(
+            !t.ips.map.contains_key(&ip("10.0.0.0")),
+            "the oldest IP is dropped"
+        );
+        assert!(
+            !t.logins.map.contains_key(&sha256(b"u0@example.com")),
+            "the oldest login is dropped"
+        );
         assert!(t.ips.map.contains_key(&ip("10.0.0.1")));
     }
 
@@ -301,7 +386,11 @@ mod tests {
         let s = Sessions::default();
         let c = s.create(AccountId(1), 1, T0);
         assert!(s.get(&c, T0 + IDLE).is_some());
-        assert!(s.get(&c, T0 + IDLE + IDLE + Duration::from_secs(1)).is_none(), "idle too long");
+        assert!(
+            s.get(&c, T0 + IDLE + IDLE + Duration::from_secs(1))
+                .is_none(),
+            "idle too long"
+        );
         assert!(s.get(&c, T0).is_none(), "and gone");
         assert!(s.get(&c.to_uppercase(), T0).is_none() && s.get("ab", T0).is_none());
     }

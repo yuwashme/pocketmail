@@ -19,13 +19,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 mod accounts;
-pub mod outbox;
-pub mod preferences;
 mod blob;
 mod deliver;
 mod flags;
-mod schema;
 mod imap_write;
+pub mod outbox;
+pub mod preferences;
+mod schema;
 
 pub use accounts::{Account, Verified, check_login, check_password, normalize_address};
 pub use deliver::{Delivery, DeliveryOutcome};
@@ -76,8 +76,13 @@ pub enum StoreError {
     Db(rusqlite::Error),
     /// Another process holds the data dir's exclusive lock (`.lock`).
     Locked(PathBuf),
-    SchemaTooNew { found: i64 },
-    SizeMismatch { expected: u64, actual: u64 },
+    SchemaTooNew {
+        found: i64,
+    },
+    SizeMismatch {
+        expected: u64,
+        actual: u64,
+    },
     NotFound(String),
     AlreadyExists(String),
     InvalidInput(String),
@@ -98,14 +103,20 @@ impl fmt::Display for StoreError {
             StoreError::Db(e) => write!(f, "database error: {e}"),
             StoreError::Locked(p) => write!(f, "{} is in use by another ssm process", p.display()),
             StoreError::SchemaTooNew { found } => {
-                write!(f, "database schema version {found} is newer than this binary knows ({})", schema::VERSION)
+                write!(
+                    f,
+                    "database schema version {found} is newer than this binary knows ({})",
+                    schema::VERSION
+                )
             }
-            StoreError::SizeMismatch { expected, actual } => write!(f, "size mismatch: expected {expected} bytes, read {actual}"),
+            StoreError::SizeMismatch { expected, actual } => {
+                write!(f, "size mismatch: expected {expected} bytes, read {actual}")
+            }
             StoreError::NotFound(what) => write!(f, "not found: {what}"),
             StoreError::AlreadyExists(what) => write!(f, "already exists: {what}"),
             StoreError::InvalidInput(why) => write!(f, "invalid input: {why}"),
             StoreError::Hash(why) => write!(f, "password hashing failed: {why}"),
-            StoreError::ForwardQueueFull => write!(f,"Forwarding queue is full; try later"),
+            StoreError::ForwardQueueFull => write!(f, "Forwarding queue is full; try later"),
             StoreError::QuotaExceeded => write!(f, "Mailbox storage limit reached"),
             StoreError::LastAdmin => write!(f, "At least one admin must remain"),
             #[cfg(feature = "failpoints")]
@@ -141,7 +152,10 @@ pub(crate) fn is_constraint(e: &rusqlite::Error) -> bool {
 }
 
 pub(crate) fn now_unix() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Per-connection settings: WAL, FULL sync, FKs, 5 s busy wait, 512 KiB cache, no mmap.
@@ -216,10 +230,17 @@ impl Store {
         }
         let lock_file = if exclusive {
             let path = data_dir.join(".lock");
-            let f = OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(&path)?;
+            let f = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .mode(0o600)
+                .open(&path)?;
             match f.try_lock() {
                 Ok(()) => {}
-                Err(fs::TryLockError::WouldBlock) => return Err(StoreError::Locked(data_dir.to_path_buf())),
+                Err(fs::TryLockError::WouldBlock) => {
+                    return Err(StoreError::Locked(data_dir.to_path_buf()));
+                }
                 Err(fs::TryLockError::Error(e)) => return Err(e.into()),
             }
             blob::empty_dir(&data_dir.join("tmp"))?;
@@ -230,10 +251,18 @@ impl Store {
 
         let db = data_dir.join("ssm.db");
         // Create the file ourselves so it is 0600; SQLite gives -wal/-shm the same mode.
-        OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(&db)?;
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o600)
+            .open(&db)?;
         let mut writer = open_connection(&db)?;
         schema::migrate(&mut writer, &db)?;
-        let readers = [Mutex::new(open_connection(&db)?), Mutex::new(open_connection(&db)?)];
+        let readers = [
+            Mutex::new(open_connection(&db)?),
+            Mutex::new(open_connection(&db)?),
+        ];
 
         Ok(Store {
             dir: data_dir.to_path_buf(),
@@ -242,8 +271,13 @@ impl Store {
             next_reader: AtomicUsize::new(0),
             outbox_ready: tokio::sync::Notify::new(),
             argon2_gate: accounts::Gate::new(match std::env::var("SSM_PASSWORD_JOBS").as_deref() {
-                Ok("2") => 2, Ok("1") | Err(_) => 1,
-                Ok(_) => return Err(StoreError::InvalidInput("SSM_PASSWORD_JOBS must be 1 or 2".into())),
+                Ok("2") => 2,
+                Ok("1") | Err(_) => 1,
+                Ok(_) => {
+                    return Err(StoreError::InvalidInput(
+                        "SSM_PASSWORD_JOBS must be 1 or 2".into(),
+                    ));
+                }
             }),
             _lock: lock_file,
             #[cfg(feature = "failpoints")]
@@ -313,28 +347,52 @@ impl Store {
 
     pub fn mailboxes(&self, account: AccountId) -> Result<Vec<MailboxInfo>, StoreError> {
         let c = self.reader();
-        let mut st = c.prepare_cached(&format!("SELECT {} FROM mailboxes WHERE account_id = ? ORDER BY name", Self::MAILBOX_COLS))?;
+        let mut st = c.prepare_cached(&format!(
+            "SELECT {} FROM mailboxes WHERE account_id = ? ORDER BY name",
+            Self::MAILBOX_COLS
+        ))?;
         let rows = st.query_map([account.0], Self::mailbox_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// "INBOX" matches case-insensitively (RFC 3501 5.1); other names exactly.
-    pub fn find_mailbox(&self, account: AccountId, name: &str) -> Result<Option<MailboxInfo>, StoreError> {
-        let name = if name.eq_ignore_ascii_case("INBOX") { "INBOX" } else { name };
+    pub fn find_mailbox(
+        &self,
+        account: AccountId,
+        name: &str,
+    ) -> Result<Option<MailboxInfo>, StoreError> {
+        let name = if name.eq_ignore_ascii_case("INBOX") {
+            "INBOX"
+        } else {
+            name
+        };
         let c = self.reader();
-        let mut st = c.prepare_cached(&format!("SELECT {} FROM mailboxes WHERE account_id = ? AND name = ?", Self::MAILBOX_COLS))?;
-        Ok(st.query_row(params![account.0, name], Self::mailbox_row).optional()?)
+        let mut st = c.prepare_cached(&format!(
+            "SELECT {} FROM mailboxes WHERE account_id = ? AND name = ?",
+            Self::MAILBOX_COLS
+        ))?;
+        Ok(st
+            .query_row(params![account.0, name], Self::mailbox_row)
+            .optional()?)
     }
 
     pub fn mailbox(&self, id: MailboxId) -> Result<MailboxInfo, StoreError> {
         let c = self.reader();
-        let mut st = c.prepare_cached(&format!("SELECT {} FROM mailboxes WHERE id = ?", Self::MAILBOX_COLS))?;
-        st.query_row([id.0], Self::mailbox_row).optional()?.ok_or_else(|| StoreError::NotFound(format!("mailbox {}", id.0)))
+        let mut st = c.prepare_cached(&format!(
+            "SELECT {} FROM mailboxes WHERE id = ?",
+            Self::MAILBOX_COLS
+        ))?;
+        st.query_row([id.0], Self::mailbox_row)
+            .optional()?
+            .ok_or_else(|| StoreError::NotFound(format!("mailbox {}", id.0)))
     }
 
     /// IMAP SUBSCRIBE / UNSUBSCRIBE (LSUB lists subscribed mailboxes).
     pub fn set_subscribed(&self, mailbox: MailboxId, on: bool) -> Result<(), StoreError> {
-        let n = self.writer().execute("UPDATE mailboxes SET subscribed = ? WHERE id = ?", params![on, mailbox.0])?;
+        let n = self.writer().execute(
+            "UPDATE mailboxes SET subscribed = ? WHERE id = ?",
+            params![on, mailbox.0],
+        )?;
         if n == 0 {
             return Err(StoreError::NotFound(format!("mailbox {}", mailbox.0)));
         }
@@ -363,13 +421,24 @@ impl Store {
     }
 
     /// Newest first. A cursor keeps the page stable when another message arrives.
-    pub fn inbox_page(&self, mailbox: MailboxId, before: i64) -> Result<Vec<(u32,String,String)>, StoreError> {
+    pub fn inbox_page(
+        &self,
+        mailbox: MailboxId,
+        before: i64,
+    ) -> Result<Vec<(u32, String, String)>, StoreError> {
         use std::io::Read;
         let rows = {
             let c = self.reader();
             let mut st = c.prepare_cached("SELECT uid,sender,subject,blob FROM messages WHERE mailbox_id=? AND uid<? ORDER BY uid DESC LIMIT 21")?;
-            st.query_map(params![mailbox.0,before], |r| Ok((r.get::<_,u32>(0)?,r.get::<_,Option<String>>(1)?,
-                r.get::<_,Option<String>>(2)?,r.get::<_,String>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
+            st.query_map(params![mailbox.0, before], |r| {
+                Ok((
+                    r.get::<_, u32>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
         };
         rows.into_iter().map(|(uid,sender,subject,blob)| {
             if let (Some(from),Some(title)) = (sender,subject) { return Ok((uid,from,title)); }
@@ -385,10 +454,13 @@ impl Store {
     pub fn open_message(&self, mailbox: MailboxId, uid: u32) -> Result<File, StoreError> {
         let blob: Option<String> = {
             let c = self.reader();
-            let mut st = c.prepare_cached("SELECT blob FROM messages WHERE mailbox_id = ? AND uid = ?")?;
-            st.query_row(params![mailbox.0, uid], |r| r.get(0)).optional()?
+            let mut st =
+                c.prepare_cached("SELECT blob FROM messages WHERE mailbox_id = ? AND uid = ?")?;
+            st.query_row(params![mailbox.0, uid], |r| r.get(0))
+                .optional()?
         };
-        let blob = blob.ok_or_else(|| StoreError::NotFound(format!("uid {uid} in mailbox {}", mailbox.0)))?;
+        let blob = blob
+            .ok_or_else(|| StoreError::NotFound(format!("uid {uid} in mailbox {}", mailbox.0)))?;
         Ok(File::open(self.dir.join(blob))?)
     }
 
@@ -424,10 +496,15 @@ impl Store {
     }
 }
 
-fn summary(head: &[u8]) -> (String,String) {
+fn summary(head: &[u8]) -> (String, String) {
     let msg = mail_parser::MessageParser::new().parse_headers(head);
     let root = msg.as_ref().map(|m| m.root());
-    let sender = root.and_then(|m| m.from()?.first()?.address()).unwrap_or("Unknown sender");
+    let sender = root
+        .and_then(|m| m.from()?.first()?.address())
+        .unwrap_or("Unknown sender");
     let subject = root.and_then(|m| m.subject()).unwrap_or("(No subject)");
-    (sender.chars().take(120).collect(), subject.chars().take(200).collect())
+    (
+        sender.chars().take(120).collect(),
+        subject.chars().take(200).collect(),
+    )
 }

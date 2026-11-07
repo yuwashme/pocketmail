@@ -15,7 +15,12 @@ fn with_messages(n: i64) -> (TempDir, Store, MailboxId) {
 }
 
 fn flags_of(store: &Store, mb: MailboxId) -> Vec<u8> {
-    store.messages(mb).unwrap().iter().map(|m| m.flags.bits()).collect()
+    store
+        .messages(mb)
+        .unwrap()
+        .iter()
+        .map(|m| m.flags.bits())
+        .collect()
 }
 
 #[test]
@@ -36,17 +41,46 @@ fn add_remove_replace_bump_modseq() {
     let (tmp, store, mb) = with_messages(1);
     let m0 = store.mailbox(mb).unwrap().highest_modseq;
 
-    let r = store.store_flags(mb, &[1], FlagOp::Add, Flags::SEEN | Flags::FLAGGED).unwrap();
-    assert_eq!(r, vec![FlagUpdate { uid: 1, flags: Flags::SEEN | Flags::FLAGGED, modseq: m0 + 1 }]);
+    let r = store
+        .store_flags(mb, &[1], FlagOp::Add, Flags::SEEN | Flags::FLAGGED)
+        .unwrap();
+    assert_eq!(
+        r,
+        vec![FlagUpdate {
+            uid: 1,
+            flags: Flags::SEEN | Flags::FLAGGED,
+            modseq: m0 + 1
+        }]
+    );
     assert_eq!(store.mailbox(mb).unwrap().highest_modseq, m0 + 1);
-    let raw: i64 = raw_db(&tmp).query_row("SELECT flags FROM messages WHERE uid = 1", [], |r| r.get(0)).unwrap();
+    let raw: i64 = raw_db(&tmp)
+        .query_row("SELECT flags FROM messages WHERE uid = 1", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(raw, 5, "on-disk bits: Seen 1 | Flagged 4");
 
-    let r = store.store_flags(mb, &[1], FlagOp::Remove, Flags::SEEN).unwrap();
-    assert_eq!(r, vec![FlagUpdate { uid: 1, flags: Flags::FLAGGED, modseq: m0 + 2 }]);
+    let r = store
+        .store_flags(mb, &[1], FlagOp::Remove, Flags::SEEN)
+        .unwrap();
+    assert_eq!(
+        r,
+        vec![FlagUpdate {
+            uid: 1,
+            flags: Flags::FLAGGED,
+            modseq: m0 + 2
+        }]
+    );
 
-    let r = store.store_flags(mb, &[1], FlagOp::Replace, Flags::ANSWERED | Flags::DRAFT).unwrap();
-    assert_eq!(r, vec![FlagUpdate { uid: 1, flags: Flags::ANSWERED | Flags::DRAFT, modseq: m0 + 3 }]);
+    let r = store
+        .store_flags(mb, &[1], FlagOp::Replace, Flags::ANSWERED | Flags::DRAFT)
+        .unwrap();
+    assert_eq!(
+        r,
+        vec![FlagUpdate {
+            uid: 1,
+            flags: Flags::ANSWERED | Flags::DRAFT,
+            modseq: m0 + 3
+        }]
+    );
 
     let m = &store.messages(mb).unwrap()[0];
     assert_eq!(m.flags.bits(), 18);
@@ -57,11 +91,25 @@ fn add_remove_replace_bump_modseq() {
 #[test]
 fn a_store_that_changes_nothing_keeps_modseq() {
     let (_tmp, store, mb) = with_messages(1);
-    store.store_flags(mb, &[1], FlagOp::Add, Flags::FLAGGED).unwrap();
+    store
+        .store_flags(mb, &[1], FlagOp::Add, Flags::FLAGGED)
+        .unwrap();
     let before = store.mailbox(mb).unwrap().highest_modseq;
-    let r = store.store_flags(mb, &[1], FlagOp::Add, Flags::FLAGGED).unwrap();
-    assert_eq!(r, vec![FlagUpdate { uid: 1, flags: Flags::FLAGGED, modseq: before }], "unchanged message keeps its modseq");
-    let r = store.store_flags(mb, &[1], FlagOp::Remove, Flags::SEEN).unwrap();
+    let r = store
+        .store_flags(mb, &[1], FlagOp::Add, Flags::FLAGGED)
+        .unwrap();
+    assert_eq!(
+        r,
+        vec![FlagUpdate {
+            uid: 1,
+            flags: Flags::FLAGGED,
+            modseq: before
+        }],
+        "unchanged message keeps its modseq"
+    );
+    let r = store
+        .store_flags(mb, &[1], FlagOp::Remove, Flags::SEEN)
+        .unwrap();
     assert_eq!(r[0].modseq, before);
     assert_eq!(store.mailbox(mb).unwrap().highest_modseq, before);
 }
@@ -70,15 +118,29 @@ fn a_store_that_changes_nothing_keeps_modseq() {
 fn multi_uid_store_skips_unknown_uids_and_keeps_highest_modseq_consistent() {
     let (_tmp, store, mb) = with_messages(3);
     let before = store.mailbox(mb).unwrap().highest_modseq;
-    let r = store.store_flags(mb, &[3, 1, 99], FlagOp::Add, Flags::SEEN).unwrap();
-    assert_eq!(r.iter().map(|u| u.uid).collect::<Vec<_>>(), vec![1, 3], "uid order, unknown uid 99 skipped");
-    assert!(r.iter().all(|u| u.modseq > before && u.flags == Flags::SEEN));
+    let r = store
+        .store_flags(mb, &[3, 1, 99], FlagOp::Add, Flags::SEEN)
+        .unwrap();
+    assert_eq!(
+        r.iter().map(|u| u.uid).collect::<Vec<_>>(),
+        vec![1, 3],
+        "uid order, unknown uid 99 skipped"
+    );
+    assert!(
+        r.iter()
+            .all(|u| u.modseq > before && u.flags == Flags::SEEN)
+    );
     assert_eq!(flags_of(&store, mb), vec![1, 0, 1]);
     let highest = store.mailbox(mb).unwrap().highest_modseq;
     let msgs = store.messages(mb).unwrap();
     assert_eq!(highest, msgs.iter().map(|m| m.modseq).max().unwrap());
     assert!(msgs.iter().all(|m| m.modseq <= highest));
-    assert!(store.store_flags(mb, &[], FlagOp::Add, Flags::SEEN).unwrap().is_empty());
+    assert!(
+        store
+            .store_flags(mb, &[], FlagOp::Add, Flags::SEEN)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -89,7 +151,9 @@ fn flags_only_touch_the_given_mailbox() {
     deliver(&store, 1, "alice@example.com", BODY).unwrap();
     deliver(&store, 2, "bob@example.com", BODY).unwrap();
     let b_modseq = store.mailbox(b).unwrap().highest_modseq;
-    store.store_flags(a, &[1], FlagOp::Add, Flags::SEEN).unwrap();
+    store
+        .store_flags(a, &[1], FlagOp::Add, Flags::SEEN)
+        .unwrap();
     assert_eq!(flags_of(&store, b), vec![0]);
     assert_eq!(store.mailbox(b).unwrap().highest_modseq, b_modseq);
 }
@@ -97,7 +161,9 @@ fn flags_only_touch_the_given_mailbox() {
 #[test]
 fn flags_survive_reopen() {
     let (tmp, store, mb) = with_messages(1);
-    store.store_flags(mb, &[1], FlagOp::Add, Flags::ANSWERED).unwrap();
+    store
+        .store_flags(mb, &[1], FlagOp::Add, Flags::ANSWERED)
+        .unwrap();
     drop(store);
     let store = reopen(&tmp);
     assert_eq!(flags_of(&store, mb), vec![2]);
@@ -106,17 +172,30 @@ fn flags_survive_reopen() {
 #[test]
 fn claim_recent_hands_each_new_uid_to_one_session() {
     let (_tmp, store, mb) = with_messages(2);
-    assert_eq!(store.claim_recent(mb).unwrap(), RecentClaim { floor: 0, upto: 2 });
+    assert_eq!(
+        store.claim_recent(mb).unwrap(),
+        RecentClaim { floor: 0, upto: 2 }
+    );
     assert_eq!(store.mailbox(mb).unwrap().recent_uid, 2);
-    assert_eq!(store.claim_recent(mb).unwrap(), RecentClaim { floor: 2, upto: 2 }, "nothing new");
+    assert_eq!(
+        store.claim_recent(mb).unwrap(),
+        RecentClaim { floor: 2, upto: 2 },
+        "nothing new"
+    );
     deliver(&store, 3, "test@example.com", BODY).unwrap();
-    assert_eq!(store.claim_recent(mb).unwrap(), RecentClaim { floor: 2, upto: 3 });
+    assert_eq!(
+        store.claim_recent(mb).unwrap(),
+        RecentClaim { floor: 2, upto: 3 }
+    );
 }
 
 #[test]
 fn claim_recent_on_an_empty_mailbox() {
     let (_tmp, store, mb) = with_messages(0);
-    assert_eq!(store.claim_recent(mb).unwrap(), RecentClaim { floor: 0, upto: 0 });
+    assert_eq!(
+        store.claim_recent(mb).unwrap(),
+        RecentClaim { floor: 0, upto: 0 }
+    );
 }
 
 #[test]
@@ -132,7 +211,11 @@ fn concurrent_claims_never_share_a_recent_uid() {
     let mut claims: Vec<RecentClaim> = handles.into_iter().map(|h| h.join().unwrap()).collect();
     claims.sort_by_key(|c| (c.floor, c.upto));
     let winners: Vec<_> = claims.iter().filter(|c| c.upto > c.floor).collect();
-    assert_eq!(winners, vec![&RecentClaim { floor: 0, upto: 3 }], "exactly one session sees uids 1..=3 as \\Recent: {claims:?}");
+    assert_eq!(
+        winners,
+        vec![&RecentClaim { floor: 0, upto: 3 }],
+        "exactly one session sees uids 1..=3 as \\Recent: {claims:?}"
+    );
     assert!(claims.iter().all(|c| c.upto == 3));
 }
 
@@ -142,5 +225,8 @@ fn claim_recent_survives_reopen() {
     store.claim_recent(mb).unwrap();
     drop(store);
     let store = reopen(&tmp);
-    assert_eq!(store.claim_recent(mb).unwrap(), RecentClaim { floor: 2, upto: 2 });
+    assert_eq!(
+        store.claim_recent(mb).unwrap(),
+        RecentClaim { floor: 2, upto: 2 }
+    );
 }

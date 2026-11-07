@@ -33,11 +33,24 @@ impl Html {
     /// the input points to it. Text inputs (user names and addresses) are not capitalized or
     /// spellchecked.
     pub fn field(&mut self, f: &Field<'_>) -> &mut Html {
-        self.raw("<label for=\"").raw(f.name).raw("\">").raw(f.label).raw("</label>");
+        self.raw("<label for=\"")
+            .raw(f.name)
+            .raw("\">")
+            .raw(f.label)
+            .raw("</label>");
         if let Some(error) = f.error {
-            self.raw("<p id=\"").raw(f.name).raw("-error\" class=\"error\">").text(error).raw("</p>");
+            self.raw("<p id=\"")
+                .raw(f.name)
+                .raw("-error\" class=\"error\">")
+                .text(error)
+                .raw("</p>");
         }
-        self.raw("<input id=\"").raw(f.name).raw("\" name=\"").raw(f.name).raw("\" type=\"").raw(f.kind);
+        self.raw("<input id=\"")
+            .raw(f.name)
+            .raw("\" name=\"")
+            .raw(f.name)
+            .raw("\" type=\"")
+            .raw(f.kind);
         self.raw("\" autocomplete=\"").raw(f.autocomplete).raw("\"");
         if f.kind == "text" {
             self.raw(" autocapitalize=\"none\" spellcheck=\"false\"");
@@ -46,7 +59,9 @@ impl Html {
             self.raw(" value=\"").text(value).raw("\"");
         }
         if f.error.is_some() {
-            self.raw(" aria-invalid=\"true\" aria-describedby=\"").raw(f.name).raw("-error\"");
+            self.raw(" aria-invalid=\"true\" aria-describedby=\"")
+                .raw(f.name)
+                .raw("-error\"");
         }
         self.raw(">")
     }
@@ -62,18 +77,33 @@ impl Html {
 
     /// The hidden CSRF field of a form.
     pub fn csrf(&mut self, token: &str) -> &mut Html {
-        self.raw("<input type=\"hidden\" name=\"csrf\" value=\"").text(token).raw("\">")
+        self.raw("<input type=\"hidden\" name=\"csrf\" value=\"")
+            .text(token)
+            .raw("\">")
     }
 
     /// The whole document: `title` as the heading, a Sign out button when `csrf` is given (a
     /// signed-in page), then `body`. `nav`, for an admin, is this page's path: the header gets the
     /// admin links, the one to this page marked current.
-    pub fn page(title: &'static str, csrf: Option<&str>, nav: Option<&str>, body: impl FnOnce(&mut Html)) -> Vec<u8> {
+    pub fn page(
+        title: &'static str,
+        csrf: Option<&str>,
+        nav: Option<&str>,
+        body: impl FnOnce(&mut Html),
+    ) -> Vec<u8> {
         let mut h = Html(String::with_capacity(2048));
         h.raw("<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">");
         h.raw("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        h.raw("<title>").raw(title).raw(" - ").raw(SITE).raw("</title>");
-        h.raw("<link rel=\"stylesheet\" href=\"").raw(CSS_PATH).raw("\"></head>\n<body><header><p>").raw(SITE).raw("</p>");
+        h.raw("<title>")
+            .raw(title)
+            .raw(" - ")
+            .raw(SITE)
+            .raw("</title>");
+        h.raw("<link rel=\"stylesheet\" href=\"")
+            .raw(CSS_PATH)
+            .raw("\"></head>\n<body><header><p>")
+            .raw(SITE)
+            .raw("</p>");
         if let Some(current) = nav {
             h.raw("<nav aria-label=\"Settings\"><ul>");
             for (href, text) in [("/accounts", "Accounts"), ("/me", "Your account")] {
@@ -86,7 +116,8 @@ impl Html {
             h.raw("</ul></nav>");
         }
         if let Some(token) = csrf {
-            h.raw("<form method=\"post\" action=\"/logout\">").csrf(token);
+            h.raw("<form method=\"post\" action=\"/logout\">")
+                .csrf(token);
             h.raw("<button type=\"submit\" class=\"secondary\">Sign out</button></form>");
         }
         h.raw("</header>\n<main><h1>").raw(title).raw("</h1>\n");
@@ -115,13 +146,23 @@ mod tests {
     fn text_is_escaped_markup_is_not() {
         let mut h = Html::default();
         h.raw("<b>").text("<script>\"x&'y\"</script>").raw("</b>");
-        assert_eq!(h.0, "<b>&lt;script&gt;&quot;x&amp;&#39;y&quot;&lt;/script&gt;</b>");
+        assert_eq!(
+            h.0,
+            "<b>&lt;script&gt;&quot;x&amp;&#39;y&quot;&lt;/script&gt;</b>"
+        );
     }
 
     #[test]
     fn field_with_error_points_to_it() {
         let mut h = Html::default();
-        let f = Field { name: "login", label: "User name", kind: "text", autocomplete: "username", value: Some("a\"b"), error: Some("Wrong.") };
+        let f = Field {
+            name: "login",
+            label: "User name",
+            kind: "text",
+            autocomplete: "username",
+            value: Some("a\"b"),
+            error: Some("Wrong."),
+        };
         h.field(&f);
         assert_eq!(
             h.0,

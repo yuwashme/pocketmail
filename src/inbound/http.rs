@@ -66,7 +66,9 @@ pub enum HttpError {
 impl fmt::Display for HttpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            HttpError::InvalidUrl(u) => write!(f, "invalid URL {u:?} (https://host[:port][/path] only)"),
+            HttpError::InvalidUrl(u) => {
+                write!(f, "invalid URL {u:?} (https://host[:port][/path] only)")
+            }
             HttpError::Io(e) => write!(f, "I/O error: {e}"),
             HttpError::Tls(e) => write!(f, "TLS error: {e}"),
             HttpError::Timeout => f.write_str("idle timeout"),
@@ -86,7 +88,9 @@ fn malformed(m: &str) -> HttpError {
 
 /// rustls errors come wrapped in io::Error (kind InvalidData); everything else is plain I/O.
 fn map_io(e: io::Error) -> HttpError {
-    if e.kind() == io::ErrorKind::InvalidData || e.get_ref().is_some_and(|i| i.is::<rustls::Error>()) {
+    if e.kind() == io::ErrorKind::InvalidData
+        || e.get_ref().is_some_and(|i| i.is::<rustls::Error>())
+    {
         HttpError::Tls(e.to_string())
     } else {
         HttpError::Io(e)
@@ -104,11 +108,17 @@ pub struct Head {
 impl Head {
     /// Value of the first field named `name` (ASCII case-insensitive).
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     fn all<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a str> {
-        self.headers.iter().filter(move |(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .filter(move |(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -181,13 +191,20 @@ pub(crate) fn parse_url(url: &str) -> Result<Url, HttpError> {
     };
     let port = match port {
         None => 443,
-        Some(p) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => p.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(bad)?,
+        Some(p) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => {
+            p.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(bad)?
+        }
         Some(_) => return Err(bad()),
     };
     if host.is_empty() {
         return Err(bad());
     }
-    Ok(Url { host: host.to_string(), port, authority: authority.to_string(), path: path.to_string() })
+    Ok(Url {
+        host: host.to_string(),
+        port,
+        authority: authority.to_string(),
+        path: path.to_string(),
+    })
 }
 
 /// The connection plus unread bytes received ahead of their use.
@@ -223,7 +240,9 @@ impl Conn {
         let (n, res) = match r {
             Ok(Ok(n)) => (n, Ok(n)),
             // rustls: the peer closed TCP without close_notify.
-            Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => (0, Err(HttpError::Truncated)),
+            Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                (0, Err(HttpError::Truncated))
+            }
             Ok(Err(e)) => (0, Err(map_io(e))),
             Err(_) => (0, Err(HttpError::Timeout)),
         };
@@ -243,7 +262,10 @@ impl Conn {
     async fn line(&mut self) -> Result<Vec<u8>, HttpError> {
         loop {
             if let Some(i) = self.avail().iter().position(|b| *b == b'\n') {
-                let line = self.avail()[..i].strip_suffix(b"\r").unwrap_or(&self.avail()[..i]).to_vec();
+                let line = self.avail()[..i]
+                    .strip_suffix(b"\r")
+                    .unwrap_or(&self.avail()[..i])
+                    .to_vec();
                 self.consume(i + 1);
                 return Ok(line);
             }
@@ -255,7 +277,11 @@ impl Conn {
     }
 
     /// Pass exactly `n` body bytes to `sink`.
-    async fn copy(&mut self, mut n: u64, sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>) -> Result<(), HttpError> {
+    async fn copy(
+        &mut self,
+        mut n: u64,
+        sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>,
+    ) -> Result<(), HttpError> {
         while n > 0 {
             if self.avail().is_empty() {
                 self.fill_more().await?;
@@ -274,13 +300,20 @@ impl Conn {
             let mut fields = [httparse::EMPTY_HEADER; MAX_HEADERS];
             let mut res = httparse::Response::new(&mut fields);
             match res.parse(self.avail()) {
-                Ok(httparse::Status::Complete(n)) if n > MAX_HEAD_BYTES => return Err(HttpError::HeadTooLarge),
+                Ok(httparse::Status::Complete(n)) if n > MAX_HEAD_BYTES => {
+                    return Err(HttpError::HeadTooLarge);
+                }
                 Ok(httparse::Status::Complete(n)) => {
                     let status = res.code.unwrap_or(0);
                     let headers = res
                         .headers
                         .iter()
-                        .map(|h| (h.name.to_string(), String::from_utf8_lossy(h.value).into_owned()))
+                        .map(|h| {
+                            (
+                                h.name.to_string(),
+                                String::from_utf8_lossy(h.value).into_owned(),
+                            )
+                        })
                         .collect();
                     self.consume(n);
                     if (100..200).contains(&status) {
@@ -288,7 +321,9 @@ impl Conn {
                     }
                     return Ok(Head { status, headers });
                 }
-                Ok(httparse::Status::Partial) if self.avail().len() > MAX_HEAD_BYTES => return Err(HttpError::HeadTooLarge),
+                Ok(httparse::Status::Partial) if self.avail().len() > MAX_HEAD_BYTES => {
+                    return Err(HttpError::HeadTooLarge);
+                }
                 Ok(httparse::Status::Partial) => self.fill_more().await?,
                 Err(e) => return Err(HttpError::Malformed(e.to_string())),
             }
@@ -296,7 +331,11 @@ impl Conn {
     }
 
     /// The body as framed by RFC 9112 6.3, de-chunked, into `sink`.
-    async fn body(&mut self, head: &Head, sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>) -> Result<(), HttpError> {
+    async fn body(
+        &mut self,
+        head: &Head,
+        sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>,
+    ) -> Result<(), HttpError> {
         if head.status == 204 || head.status == 304 {
             return Ok(());
         }
@@ -324,10 +363,17 @@ impl Conn {
         }
     }
 
-    async fn chunked(&mut self, sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>) -> Result<(), HttpError> {
+    async fn chunked(
+        &mut self,
+        sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>,
+    ) -> Result<(), HttpError> {
         loop {
             let line = self.line().await?;
-            let size = line.split(|b| *b == b';').next().unwrap_or_default().trim_ascii();
+            let size = line
+                .split(|b| *b == b';')
+                .next()
+                .unwrap_or_default()
+                .trim_ascii();
             if size.is_empty() || !size.iter().all(u8::is_ascii_hexdigit) {
                 return Err(malformed("bad chunk size"));
             }
@@ -365,7 +411,9 @@ fn content_length(head: &Head) -> Result<Option<u64>, HttpError> {
         if v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
             return Err(malformed("bad Content-Length"));
         }
-        let n = v.parse::<u64>().map_err(|_| malformed("Content-Length overflows"))?;
+        let n = v
+            .parse::<u64>()
+            .map_err(|_| malformed("Content-Length overflows"))?;
         if found.is_some_and(|f| f != n) {
             return Err(malformed("conflicting Content-Length values"));
         }
@@ -383,18 +431,35 @@ pub struct HttpClient {
 impl HttpClient {
     /// Idle timeout DEFAULT_IDLE_TIMEOUT.
     pub fn new(tls: Arc<rustls::ClientConfig>) -> HttpClient {
-        HttpClient { tls, idle_timeout: DEFAULT_IDLE_TIMEOUT }
+        HttpClient {
+            tls,
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+        }
     }
 
     pub fn with_idle_timeout(self, timeout: Duration) -> HttpClient {
-        HttpClient { idle_timeout: timeout, ..self }
+        HttpClient {
+            idle_timeout: timeout,
+            ..self
+        }
     }
 
     /// Connect, handshake, write the request; returns the connection with the head read.
-    async fn request(&self, method: Method, url: &str, headers: &[(&str, &str)]) -> Result<(Conn, Head), HttpError> {
+    async fn request(
+        &self,
+        method: Method,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<(Conn, Head), HttpError> {
         let u = parse_url(url)?;
-        let name = ServerName::try_from(u.host.clone()).map_err(|_| HttpError::InvalidUrl(url.to_string()))?;
-        let mut req = format!("{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n", method.as_str(), u.path, u.authority);
+        let name = ServerName::try_from(u.host.clone())
+            .map_err(|_| HttpError::InvalidUrl(url.to_string()))?;
+        let mut req = format!(
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
+            method.as_str(),
+            u.path,
+            u.authority
+        );
         for (n, v) in headers {
             if n.bytes().chain(v.bytes()).any(|b| b == b'\r' || b == b'\n') {
                 return Err(malformed("CR or LF in a request header"));
@@ -408,11 +473,19 @@ impl HttpClient {
             .await
             .map_err(|_| HttpError::Timeout)?
             .map_err(HttpError::Io)?;
-        let stream = timeout(idle, TlsConnector::from(self.tls.clone()).connect(name, tcp))
-            .await
-            .map_err(|_| HttpError::Timeout)?
-            .map_err(map_io)?;
-        let mut conn = Conn { stream, buf: Vec::with_capacity(READ_CHUNK), start: 0, idle };
+        let stream = timeout(
+            idle,
+            TlsConnector::from(self.tls.clone()).connect(name, tcp),
+        )
+        .await
+        .map_err(|_| HttpError::Timeout)?
+        .map_err(map_io)?;
+        let mut conn = Conn {
+            stream,
+            buf: Vec::with_capacity(READ_CHUNK),
+            start: 0,
+            idle,
+        };
         timeout(idle, async {
             conn.stream.write_all(req.as_bytes()).await?;
             conn.stream.flush().await
@@ -449,11 +522,21 @@ impl HttpClient {
 
     /// GET with the body streamed into a new file in `dir` (same file system as the store's tmp/).
     /// On any error no file is left in `dir`.
-    pub async fn get_to_file(&self, url: &str, headers: &[(&str, &str)], dir: &Path) -> Result<(Head, BodyFile), HttpError> {
+    pub async fn get_to_file(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        dir: &Path,
+    ) -> Result<(Head, BodyFile), HttpError> {
         let (mut conn, head) = self.request(Method::Get, url, headers).await?;
         let r = getrandom::u64().map_err(|e| HttpError::Io(io::Error::other(e.to_string())))?;
         let path = dir.join(format!("download-{r:016x}.part"));
-        let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).map_err(HttpError::Io)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(HttpError::Io)?;
         // From here on Drop removes the file on every error path.
         let mut out = BodyFile { path, len: 0 };
         let mut len = 0u64;
@@ -475,12 +558,25 @@ mod tests {
     #[test]
     fn urls() {
         let u = parse_url("https://h.example:8443/a/b?c").unwrap();
-        assert_eq!((u.host.as_str(), u.port, u.authority.as_str(), u.path.as_str()), ("h.example", 8443, "h.example:8443", "/a/b?c"));
+        assert_eq!(
+            (
+                u.host.as_str(),
+                u.port,
+                u.authority.as_str(),
+                u.path.as_str()
+            ),
+            ("h.example", 8443, "h.example:8443", "/a/b?c")
+        );
         let u = parse_url("https://h.example").unwrap();
         assert_eq!((u.port, u.path.as_str()), (443, "/"));
         let u = parse_url("https://[::1]:9/x").unwrap();
         assert_eq!((u.host.as_str(), u.port), ("::1", 9));
-        for bad in ["https://h:0/", "https://h:/", "https://[::1]x/", "https://h/a b"] {
+        for bad in [
+            "https://h:0/",
+            "https://h:/",
+            "https://[::1]x/",
+            "https://h/a b",
+        ] {
             assert!(parse_url(bad).is_err(), "{bad}");
         }
     }

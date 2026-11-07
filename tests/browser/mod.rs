@@ -35,7 +35,8 @@ pub fn css_path() -> String {
 
 /// The stylesheet as it is in the source tree.
 pub fn css_source() -> Vec<u8> {
-    std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/web/style.css")).expect("src/web/style.css")
+    std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/web/style.css"))
+        .expect("src/web/style.css")
 }
 
 pub struct WebHarness {
@@ -61,12 +62,19 @@ impl WebHarness {
     }
 
     /// `start_with`, with `seed` run on the store before the web server starts.
-    pub async fn start_seeded(seed: impl FnOnce(&Store), tweak: impl FnOnce(&mut WebConfig)) -> WebHarness {
+    pub async fn start_seeded(
+        seed: impl FnOnce(&Store),
+        tweak: impl FnOnce(&mut WebConfig),
+    ) -> WebHarness {
         let tmp = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&tmp.path().join("data")).unwrap());
         seed(&store);
         let pki = Pki::local();
-        let tls = synology_mail_server::tls::server_config(pki.cert_pem.as_bytes(), pki.key_pem.as_bytes()).unwrap();
+        let tls = synology_mail_server::tls::server_config(
+            pki.cert_pem.as_bytes(),
+            pki.key_pem.as_bytes(),
+        )
+        .unwrap();
         let clock = ManualClock::new();
 
         let mut config = WebConfig::new(tls.clone());
@@ -75,10 +83,26 @@ impl WebHarness {
         let server = WebServer::start(listener, store.clone(), config, clock.clone()).unwrap();
 
         let imap_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let imap = ImapServer::start(imap_listener, store.clone(), ServerConfig::new(tls.clone()), clock.clone()).unwrap();
+        let imap = ImapServer::start(
+            imap_listener,
+            store.clone(),
+            ServerConfig::new(tls.clone()),
+            clock.clone(),
+        )
+        .unwrap();
 
         let (addr, imap_addr) = (server.local_addr(), imap.local_addr());
-        WebHarness { tmp, store, clock, pki, tls, addr, imap_addr, server, imap }
+        WebHarness {
+            tmp,
+            store,
+            clock,
+            pki,
+            tls,
+            addr,
+            imap_addr,
+            server,
+            imap,
+        }
     }
 
     pub fn host(&self) -> String {
@@ -87,7 +111,9 @@ impl WebHarness {
 
     /// A TLS connection (TLS 1.3, no ALPN).
     pub async fn open(&self) -> Web {
-        Web::open(self.addr, client_tls(&self.pki)).await.expect("TLS handshake with the web server")
+        Web::open(self.addr, client_tls(&self.pki))
+            .await
+            .expect("TLS handshake with the web server")
     }
 
     /// `GET <path>` with Host on a fresh connection; the response.
@@ -133,16 +159,25 @@ pub struct Resp {
 
 impl Resp {
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn all(&self, name: &str) -> Vec<&str> {
-        self.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str()).collect()
+        self.headers
+            .iter()
+            .filter(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+            .collect()
     }
 
     /// The response says the server closes after it (`Connection: close`).
     pub fn closes(&self) -> bool {
-        self.all("connection").iter().any(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case("close")))
+        self.all("connection")
+            .iter()
+            .any(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case("close")))
     }
 
     pub fn text(&self) -> String {
@@ -159,9 +194,14 @@ impl Web {
     pub async fn open(addr: SocketAddr, tls: Arc<rustls::ClientConfig>) -> std::io::Result<Web> {
         let tcp = TcpStream::connect(addr).await?;
         let name = ServerName::try_from("localhost").unwrap();
-        let s = tokio::time::timeout(TIMEOUT, tokio_rustls::TlsConnector::from(tls).connect(name, tcp))
-            .await
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out"))??;
+        let s = tokio::time::timeout(
+            TIMEOUT,
+            tokio_rustls::TlsConnector::from(tls).connect(name, tcp),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out")
+        })??;
         Ok(Web { s, buf: Vec::new() })
     }
 
@@ -174,11 +214,18 @@ impl Web {
     }
 
     pub fn peer_certificate(&self) -> Option<CertificateDer<'static>> {
-        self.s.get_ref().1.peer_certificates().and_then(|c| c.first()).map(|c| c.clone().into_owned())
+        self.s
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|c| c.first())
+            .map(|c| c.clone().into_owned())
     }
 
     pub async fn write(&mut self, bytes: &[u8]) {
-        self.try_write(bytes).await.expect("write to the web server");
+        self.try_write(bytes)
+            .await
+            .expect("write to the web server");
     }
 
     pub async fn try_write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
@@ -194,14 +241,19 @@ impl Web {
     /// Send `GET path` and read its response.
     pub async fn get(&mut self, host: &str, path: &str) -> Resp {
         self.write(&request("GET", path, host, &[], b"")).await;
-        self.read_response(false).await.unwrap_or_else(|| panic!("no response to GET {path}"))
+        self.read_response(false)
+            .await
+            .unwrap_or_else(|| panic!("no response to GET {path}"))
     }
 
     /// Ok(false) on EOF or a transport error; panics when nothing arrives within TIMEOUT.
     async fn fill(&mut self) -> bool {
         let mut chunk = vec![0u8; 16 * 1024];
         match tokio::time::timeout(TIMEOUT, self.s.read(&mut chunk)).await {
-            Err(_) => panic!("nothing from the web server within {TIMEOUT:?} (buffered: {:?})", String::from_utf8_lossy(&self.buf)),
+            Err(_) => panic!(
+                "nothing from the web server within {TIMEOUT:?} (buffered: {:?})",
+                String::from_utf8_lossy(&self.buf)
+            ),
             Ok(Ok(0)) | Ok(Err(_)) => false,
             Ok(Ok(n)) => {
                 self.buf.extend_from_slice(&chunk[..n]);
@@ -218,31 +270,63 @@ impl Web {
                 break p + 4;
             }
             if !self.fill().await {
-                assert!(self.buf.is_empty(), "connection closed inside a response head: {:?}", String::from_utf8_lossy(&self.buf));
+                assert!(
+                    self.buf.is_empty(),
+                    "connection closed inside a response head: {:?}",
+                    String::from_utf8_lossy(&self.buf)
+                );
                 return None;
             }
         };
         let mut hs = [httparse::EMPTY_HEADER; 64];
         let mut r = httparse::Response::new(&mut hs);
-        let parsed = r.parse(&self.buf[..end]).unwrap_or_else(|e| panic!("bad response head ({e}): {:?}", String::from_utf8_lossy(&self.buf[..end])));
+        let parsed = r.parse(&self.buf[..end]).unwrap_or_else(|e| {
+            panic!(
+                "bad response head ({e}): {:?}",
+                String::from_utf8_lossy(&self.buf[..end])
+            )
+        });
         assert!(parsed.is_complete());
         assert_eq!(r.version, Some(1), "responses are HTTP/1.1");
         let status = r.code.unwrap();
-        let headers: Vec<(String, String)> =
-            r.headers.iter().map(|h| (h.name.to_string(), String::from_utf8_lossy(h.value).into_owned())).collect();
-        let lengths: Vec<&str> = headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("content-length")).map(|(_, v)| v.as_str()).collect();
-        assert_eq!(lengths.len(), 1, "every response carries exactly one Content-Length: {headers:?}");
+        let headers: Vec<(String, String)> = r
+            .headers
+            .iter()
+            .map(|h| {
+                (
+                    h.name.to_string(),
+                    String::from_utf8_lossy(h.value).into_owned(),
+                )
+            })
+            .collect();
+        let lengths: Vec<&str> = headers
+            .iter()
+            .filter(|(n, _)| n.eq_ignore_ascii_case("content-length"))
+            .map(|(_, v)| v.as_str())
+            .collect();
+        assert_eq!(
+            lengths.len(),
+            1,
+            "every response carries exactly one Content-Length: {headers:?}"
+        );
         let len: usize = lengths[0].trim().parse().expect("numeric Content-Length");
         self.buf.drain(..end);
         let body = if head_request {
             Vec::new()
         } else {
             while self.buf.len() < len {
-                assert!(self.fill().await, "connection closed inside a {len}-byte body");
+                assert!(
+                    self.fill().await,
+                    "connection closed inside a {len}-byte body"
+                );
             }
             self.buf.drain(..len).collect()
         };
-        Some(Resp { status, headers, body })
+        Some(Resp {
+            status,
+            headers,
+            body,
+        })
     }
 
     /// Read until the server closes; returns whatever came. Panics if it stays open past TIMEOUT.
@@ -268,8 +352,7 @@ impl Web {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Sessions, logins and pages
+// // Sessions, logins and pages
 
 pub const COOKIE: &str = "__Host-ssm_session";
 pub const CSRF_FIELD: &str = "csrf";
@@ -288,7 +371,9 @@ impl WebHarness {
 
     /// Account `login` with password `harness::password(login)` and the address `login`.
     pub fn user(&self, login: &str) {
-        self.store.create_account(login, &crate::harness::password(login)).unwrap();
+        self.store
+            .create_account(login, &crate::harness::password(login))
+            .unwrap();
         self.store.add_address(login, login).unwrap();
     }
 
@@ -317,7 +402,13 @@ pub struct Browser<'h> {
 
 impl<'h> Browser<'h> {
     pub fn new(h: &'h WebHarness) -> Browser<'h> {
-        Browser { h, cookie: None, csrf: None, origin: Some(h.origin()), delayed: false }
+        Browser {
+            h,
+            cookie: None,
+            csrf: None,
+            origin: Some(h.origin()),
+            delayed: false,
+        }
     }
 
     pub fn forget(&mut self) {
@@ -340,7 +431,13 @@ impl<'h> Browser<'h> {
             headers.push(format!("Content-Length: {}", body.len()));
         }
         let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
-        request(method, path, &self.h.host(), &refs, form.unwrap_or_default().as_bytes())
+        request(
+            method,
+            path,
+            &self.h.host(),
+            &refs,
+            form.unwrap_or_default().as_bytes(),
+        )
     }
 
     /// Send `bytes` on a fresh connection and read the answer, moving the clock past a failed
@@ -410,25 +507,44 @@ impl<'h> Browser<'h> {
     pub async fn sign_in(&mut self, login: &str, password: &str) -> Resp {
         let (user, pw) = self.h.login_fields().await;
         self.csrf = None;
-        self.post_exact("/login", &[(&user, login), (&pw, password)]).await
+        self.post_exact("/login", &[(&user, login), (&pw, password)])
+            .await
     }
 
     /// Change the own password through the form on /me.
     pub async fn change_password(&mut self, current: &str, new: &str, again: &str) -> Resp {
         let page = self.get("/me").await;
-        assert_eq!(page.status, 200, "GET /me before changing the password: {} {:?}", page.status, page.header("location"));
+        assert_eq!(
+            page.status,
+            200,
+            "GET /me before changing the password: {} {:?}",
+            page.status,
+            page.header("location")
+        );
         let (c, n, a) = password_fields(&page.text());
-        self.post("/me/password", &[(&c, current), (&n, new), (&a, again)]).await
+        self.post("/me/password", &[(&c, current), (&n, new), (&a, again)])
+            .await
     }
 
     /// IMAP LOGIN with `login` and `password` (literals); true on OK.
     pub async fn imap_login(&self, login: &str, password: &str) -> bool {
         use crate::harness::{Client, Part};
-        let mut c = Client::open(self.h.imap_addr, &self.h.pki).await.expect("TLS to IMAP");
+        let mut c = Client::open(self.h.imap_addr, &self.h.pki)
+            .await
+            .expect("TLS to IMAP");
         let g = c.read_response().await.expect("IMAP greeting");
-        assert!(g.starts_with(b"* OK"), "IMAP greeting: {}", String::from_utf8_lossy(&g));
+        assert!(
+            g.starts_with(b"* OK"),
+            "IMAP greeting: {}",
+            String::from_utf8_lossy(&g)
+        );
         let mark = self.h.clock.mark();
-        let parts = [Part::Text("LOGIN "), Part::Lit(login.as_bytes()), Part::Text(" "), Part::Lit(password.as_bytes())];
+        let parts = [
+            Part::Text("LOGIN "),
+            Part::Lit(login.as_bytes()),
+            Part::Text(" "),
+            Part::Lit(password.as_bytes()),
+        ];
         let (d, _) = advancing_auth_delay(&self.h.clock, mark, c.cmd_parts("L1", &parts)).await;
         d.status() == "OK"
     }
@@ -436,7 +552,11 @@ impl<'h> Browser<'h> {
 
 /// Await `answer`; if meanwhile a sleep of `AUTH_DELAY` is armed on the clock (after `mark`),
 /// move the clock by it. Returns the answer and whether the clock was moved.
-pub async fn advancing_auth_delay<T>(clock: &ManualClock, mark: u64, answer: impl std::future::Future<Output = T>) -> (T, bool) {
+pub async fn advancing_auth_delay<T>(
+    clock: &ManualClock,
+    mark: u64,
+    answer: impl std::future::Future<Output = T>,
+) -> (T, bool) {
     let moved = std::cell::Cell::new(false);
     let mover = async {
         loop {
@@ -457,32 +577,55 @@ pub async fn advancing_auth_delay<T>(clock: &ManualClock, mark: u64, answer: imp
 pub async fn no_timers_left(clock: &ManualClock, what: &str) {
     let start = std::time::Instant::now();
     while !clock.pending().is_empty() {
-        assert!(start.elapsed() < TIMEOUT, "{what}: timers still pending: {:?}", clock.pending());
+        assert!(
+            start.elapsed() < TIMEOUT,
+            "{what}: timers still pending: {:?}",
+            clock.pending()
+        );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
 pub fn form_body(form: &[(&str, &str)]) -> String {
     form.iter()
-        .map(|(k, v)| format!("{}={}", crate::net::encode_uri_component(k), crate::net::encode_uri_component(v)))
+        .map(|(k, v)| {
+            format!(
+                "{}={}",
+                crate::net::encode_uri_component(k),
+                crate::net::encode_uri_component(v)
+            )
+        })
         .collect::<Vec<_>>()
         .join("&")
 }
 
 /// The Location header; panics without one.
 pub fn location(r: &Resp) -> String {
-    r.header("location").unwrap_or_else(|| panic!("{} without Location: {:?}", r.status, r.headers)).to_string()
+    r.header("location")
+        .unwrap_or_else(|| panic!("{} without Location: {:?}", r.status, r.headers))
+        .to_string()
 }
 
 /// The Location's path, without the query.
 pub fn location_path(r: &Resp) -> String {
-    location(r).split('?').next().unwrap_or_default().to_string()
+    location(r)
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// 303 to the sign-in page.
 #[track_caller]
 pub fn assert_to_login(r: &Resp, what: &str) {
-    assert_eq!(r.status, 303, "{what}: 303 to /login, got {} {:?} {}", r.status, r.header("location"), r.text());
+    assert_eq!(
+        r.status,
+        303,
+        "{what}: 303 to /login, got {} {:?} {}",
+        r.status,
+        r.header("location"),
+        r.text()
+    );
     assert_eq!(location_path(r), "/login", "{what}");
 }
 
@@ -490,12 +633,17 @@ pub fn assert_to_login(r: &Resp, what: &str) {
 #[track_caller]
 pub fn assert_no_session_cookie(r: &Resp, what: &str) {
     for c in r.all("set-cookie").into_iter().map(SetCookie::parse) {
-        assert!(c.name != COOKIE || c.clears(), "{what}: no session cookie, got {c:?}");
+        assert!(
+            c.name != COOKIE || c.clears(),
+            "{what}: no session cookie, got {c:?}"
+        );
     }
 }
 
 pub fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 #[derive(Debug, Clone)]
@@ -509,18 +657,29 @@ pub struct SetCookie {
 impl SetCookie {
     pub fn parse(v: &str) -> SetCookie {
         let mut parts = v.split(';');
-        let (name, value) = parts.next().unwrap_or_default().split_once('=').unwrap_or((v, ""));
+        let (name, value) = parts
+            .next()
+            .unwrap_or_default()
+            .split_once('=')
+            .unwrap_or((v, ""));
         let attrs = parts
             .map(|p| match p.split_once('=') {
                 Some((k, v)) => (k.trim().to_ascii_lowercase(), v.trim().to_string()),
                 None => (p.trim().to_ascii_lowercase(), String::new()),
             })
             .collect();
-        SetCookie { name: name.trim().to_string(), value: value.trim().to_string(), attrs }
+        SetCookie {
+            name: name.trim().to_string(),
+            value: value.trim().to_string(),
+            attrs,
+        }
     }
 
     pub fn attr(&self, name: &str) -> Option<&str> {
-        self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn has(&self, name: &str) -> bool {
@@ -533,8 +692,7 @@ impl SetCookie {
     }
 }
 
-// ---- a small HTML reader for the pages (double-quoted attributes) ----
-
+// a small HTML reader for the pages (double-quoted attributes)
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub name: String,
@@ -547,7 +705,10 @@ pub struct Tag {
 
 impl Tag {
     pub fn attr(&self, name: &str) -> Option<&str> {
-        self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn has(&self, name: &str) -> bool {
@@ -589,7 +750,10 @@ pub fn all_tags(html: &str) -> Vec<Tag> {
                 _ => {}
             }
             let k0 = j;
-            while b.get(j).is_some_and(|&c| !c.is_ascii_whitespace() && c != b'=' && c != b'>' && c != b'/') {
+            while b
+                .get(j)
+                .is_some_and(|&c| !c.is_ascii_whitespace() && c != b'=' && c != b'>' && c != b'/')
+            {
                 j += 1;
             }
             let key = html[k0..j].to_ascii_lowercase();
@@ -605,7 +769,10 @@ pub fn all_tags(html: &str) -> Vec<Tag> {
                     }
                     _ => {
                         let v0 = j;
-                        while b.get(j).is_some_and(|&c| !c.is_ascii_whitespace() && c != b'>') {
+                        while b
+                            .get(j)
+                            .is_some_and(|&c| !c.is_ascii_whitespace() && c != b'>')
+                        {
                             j += 1;
                         }
                         value = unescape(&html[v0..j]);
@@ -618,14 +785,22 @@ pub fn all_tags(html: &str) -> Vec<Tag> {
             }
             attrs.push((key, value));
         }
-        out.push(Tag { name, attrs, start, end: j });
+        out.push(Tag {
+            name,
+            attrs,
+            start,
+            end: j,
+        });
         i = j.max(start + 1);
     }
     out
 }
 
 pub fn tags(html: &str, name: &str) -> Vec<Tag> {
-    all_tags(html).into_iter().filter(|t| t.name == name).collect()
+    all_tags(html)
+        .into_iter()
+        .filter(|t| t.name == name)
+        .collect()
 }
 
 /// Each form with the inputs inside it.
@@ -634,8 +809,14 @@ pub fn forms(html: &str) -> Vec<(Tag, Vec<Tag>)> {
     all.iter()
         .filter(|t| t.name == "form")
         .map(|f| {
-            let close = html[f.end..].find("</form>").map_or(html.len(), |e| f.end + e);
-            let inputs = all.iter().filter(|t| t.name == "input" && t.start > f.start && t.start < close).cloned().collect();
+            let close = html[f.end..]
+                .find("</form>")
+                .map_or(html.len(), |e| f.end + e);
+            let inputs = all
+                .iter()
+                .filter(|t| t.name == "input" && t.start > f.start && t.start < close)
+                .cloned()
+                .collect();
             (f.clone(), inputs)
         })
         .collect()
@@ -645,11 +826,22 @@ pub fn forms(html: &str) -> Vec<(Tag, Vec<Tag>)> {
 pub fn form_inputs(html: &str, action: &str) -> Vec<Tag> {
     let found: Vec<_> = forms(html)
         .into_iter()
-        .filter(|(f, _)| f.attr("action").is_some_and(|a| a.split('?').next() == Some(action)))
+        .filter(|(f, _)| {
+            f.attr("action")
+                .is_some_and(|a| a.split('?').next() == Some(action))
+        })
         .collect();
-    assert_eq!(found.len(), 1, "one form with action={action:?} in:\n{html}");
+    assert_eq!(
+        found.len(),
+        1,
+        "one form with action={action:?} in:\n{html}"
+    );
     let (form, inputs) = found.into_iter().next().unwrap();
-    assert!(form.attr("method").is_some_and(|m| m.eq_ignore_ascii_case("post")), "the {action} form posts: {form:?}");
+    assert!(
+        form.attr("method")
+            .is_some_and(|m| m.eq_ignore_ascii_case("post")),
+        "the {action} form posts: {form:?}"
+    );
     inputs
 }
 
@@ -657,7 +849,11 @@ fn names_by_autocomplete(inputs: &[Tag], autocomplete: &str) -> Vec<String> {
     inputs
         .iter()
         .filter(|i| i.attr("autocomplete") == Some(autocomplete))
-        .map(|i| i.attr("name").unwrap_or_else(|| panic!("input without a name: {i:?}")).to_string())
+        .map(|i| {
+            i.attr("name")
+                .unwrap_or_else(|| panic!("input without a name: {i:?}"))
+                .to_string()
+        })
         .collect()
 }
 
@@ -667,7 +863,10 @@ pub fn login_fields(html: &str) -> (String, String) {
     let inputs = form_inputs(html, "/login");
     let user = names_by_autocomplete(&inputs, "username");
     let pw = names_by_autocomplete(&inputs, "current-password");
-    assert!(user.len() == 1 && pw.len() == 1, "sign-in form: one autocomplete=username and one current-password input: {inputs:?}");
+    assert!(
+        user.len() == 1 && pw.len() == 1,
+        "sign-in form: one autocomplete=username and one current-password input: {inputs:?}"
+    );
     (user[0].clone(), pw[0].clone())
 }
 
@@ -677,19 +876,29 @@ pub fn password_fields(html: &str) -> (String, String, String) {
     let inputs = form_inputs(html, "/me/password");
     let current = names_by_autocomplete(&inputs, "current-password");
     let new = names_by_autocomplete(&inputs, "new-password");
-    assert!(current.len() == 1 && new.len() == 2, "change-password form: one current-password and two new-password inputs: {inputs:?}");
+    assert!(
+        current.len() == 1 && new.len() == 2,
+        "change-password form: one current-password and two new-password inputs: {inputs:?}"
+    );
     (current[0].clone(), new[0].clone(), new[1].clone())
 }
 
 /// The value of the first `<input name="csrf">`.
 pub fn csrf_token(html: &str) -> Option<String> {
-    tags(html, "input").into_iter().find(|t| t.attr("name") == Some(CSRF_FIELD)).and_then(|t| t.attr("value").map(str::to_string))
+    tags(html, "input")
+        .into_iter()
+        .find(|t| t.attr("name") == Some(CSRF_FIELD))
+        .and_then(|t| t.attr("value").map(str::to_string))
 }
 
 /// Text of the element with `id` (tags stripped, entities decoded, trimmed).
 pub fn text_of_id(html: &str, id: &str) -> Option<String> {
-    let t = all_tags(html).into_iter().find(|t| t.attr("id") == Some(id))?;
-    let close = html[t.end..].find(&format!("</{}>", t.name)).map_or(t.end, |e| t.end + e);
+    let t = all_tags(html)
+        .into_iter()
+        .find(|t| t.attr("id") == Some(id))?;
+    let close = html[t.end..]
+        .find(&format!("</{}>", t.name))
+        .map_or(t.end, |e| t.end + e);
     let mut text = String::new();
     let mut in_tag = false;
     for c in html[t.end..close].chars() {
@@ -721,7 +930,11 @@ pub fn unescape(s: &str) -> String {
             "gt" => Some('>'),
             "quot" => Some('"'),
             "apos" => Some('\''),
-            _ if entity.starts_with("#x") || entity.starts_with("#X") => u32::from_str_radix(&entity[2..], 16).ok().and_then(char::from_u32),
+            _ if entity.starts_with("#x") || entity.starts_with("#X") => {
+                u32::from_str_radix(&entity[2..], 16)
+                    .ok()
+                    .and_then(char::from_u32)
+            }
             _ if entity.starts_with('#') => entity[1..].parse().ok().and_then(char::from_u32),
             _ => None,
         };
@@ -740,8 +953,7 @@ pub fn unescape(s: &str) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------------------------
-// Admin pages and the setup link
+// // Admin pages and the setup link
 
 impl WebHarness {
     /// `user`, made admin.
@@ -752,18 +964,36 @@ impl WebHarness {
 
     /// The account id of `login`; panics if there is none.
     pub fn id(&self, login: &str) -> i64 {
-        self.store.account_id(login).unwrap().unwrap_or_else(|| panic!("no account {login}")).0
+        self.store
+            .account_id(login)
+            .unwrap()
+            .unwrap_or_else(|| panic!("no account {login}"))
+            .0
     }
 
     pub fn account(&self, login: &str) -> synology_mail_server::store::Account {
-        self.store.accounts().unwrap().into_iter().find(|a| a.login == login).unwrap_or_else(|| panic!("no account {login}"))
+        self.store
+            .accounts()
+            .unwrap()
+            .into_iter()
+            .find(|a| a.login == login)
+            .unwrap_or_else(|| panic!("no account {login}"))
     }
 
     /// Every account (login, admin, disabled, auth_stamp) and address (address, login): what a
     /// refused request must leave as it was.
     pub fn snapshot(&self) -> Snapshot {
-        let accounts = self.store.accounts().unwrap().into_iter().map(|a| (a.login, a.admin, a.disabled, a.auth_stamp)).collect();
-        Snapshot { accounts, addresses: self.store.addresses().unwrap() }
+        let accounts = self
+            .store
+            .accounts()
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.login, a.admin, a.disabled, a.auth_stamp))
+            .collect();
+        Snapshot {
+            accounts,
+            addresses: self.store.addresses().unwrap(),
+        }
     }
 
     /// A browser signed in as `login` with `harness::password(login)`.
@@ -797,19 +1027,39 @@ pub struct PostForm {
 impl PostForm {
     /// Names of the fields of type password, in page order.
     pub fn password_fields(&self) -> Vec<String> {
-        self.fields.iter().filter(|f| f.attr("type") == Some("password")).map(|f| f.attr("name").unwrap_or_default().to_string()).collect()
+        self.fields
+            .iter()
+            .filter(|f| f.attr("type") == Some("password"))
+            .map(|f| f.attr("name").unwrap_or_default().to_string())
+            .collect()
     }
 
     /// The one text input; panics unless there is exactly one.
     pub fn text_field(&self) -> String {
-        let text: Vec<&Tag> = self.fields.iter().filter(|f| matches!(f.attr("type"), None|Some("text")|Some("email"))).collect();
-        assert_eq!(text.len(), 1, "one text field in the {} form: {:?}", self.action, self.fields);
-        text[0].attr("name").unwrap_or_else(|| panic!("a field without a name: {:?}", text[0])).to_string()
+        let text: Vec<&Tag> = self
+            .fields
+            .iter()
+            .filter(|f| matches!(f.attr("type"), None | Some("text") | Some("email")))
+            .collect();
+        assert_eq!(
+            text.len(),
+            1,
+            "one text field in the {} form: {:?}",
+            self.action,
+            self.fields
+        );
+        text[0]
+            .attr("name")
+            .unwrap_or_else(|| panic!("a field without a name: {:?}", text[0]))
+            .to_string()
     }
 
     /// The value sent for `name`, if any.
     pub fn sent(&self, name: &str) -> Option<&str> {
-        self.sent.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.sent
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     /// The same form with `name` sent as `value` (replaced, or added).
@@ -834,26 +1084,51 @@ impl PostForm {
 pub fn post_forms(html: &str, action: &str) -> Vec<PostForm> {
     let all = all_tags(html);
     all.iter()
-        .filter(|t| t.name == "form" && t.attr("method").is_some_and(|m| m.eq_ignore_ascii_case("post")))
-        .filter(|f| f.attr("action").is_some_and(|a| a.split('?').next() == Some(action)))
+        .filter(|t| {
+            t.name == "form"
+                && t.attr("method")
+                    .is_some_and(|m| m.eq_ignore_ascii_case("post"))
+        })
+        .filter(|f| {
+            f.attr("action")
+                .is_some_and(|a| a.split('?').next() == Some(action))
+        })
         .map(|f| {
-            let close = html[f.end..].find("</form>").map_or(html.len(), |e| f.end + e);
-            let inside: Vec<&Tag> = all.iter().filter(|t| t.start > f.start && t.start < close).collect();
+            let close = html[f.end..]
+                .find("</form>")
+                .map_or(html.len(), |e| f.end + e);
+            let inside: Vec<&Tag> = all
+                .iter()
+                .filter(|t| t.start > f.start && t.start < close)
+                .collect();
             let mut sent = Vec::new();
             let mut fields = Vec::new();
             for t in inside.iter().filter(|t| t.name == "input") {
                 match t.attr("type") {
-                    Some("hidden") => sent.push((t.attr("name").unwrap_or_default().to_string(), t.attr("value").unwrap_or_default().to_string())),
+                    Some("hidden") => sent.push((
+                        t.attr("name").unwrap_or_default().to_string(),
+                        t.attr("value").unwrap_or_default().to_string(),
+                    )),
                     Some("submit" | "button") => {}
                     _ => fields.push((*t).clone()),
                 }
             }
-            if let Some(button) = inside.iter().find(|t| t.name == "button" && t.attr("type").is_none_or(|v| v == "submit"))
+            if let Some(button) = inside
+                .iter()
+                .find(|t| t.name == "button" && t.attr("type").is_none_or(|v| v == "submit"))
                 && let Some(name) = button.attr("name")
             {
-                sent.push((name.to_string(), button.attr("value").unwrap_or_default().to_string()));
+                sent.push((
+                    name.to_string(),
+                    button.attr("value").unwrap_or_default().to_string(),
+                ));
             }
-            PostForm { action: f.attr("action").unwrap().to_string(), sent, fields, html: html[f.start..close].to_string() }
+            PostForm {
+                action: f.attr("action").unwrap().to_string(),
+                sent,
+                fields,
+                html: html[f.start..close].to_string(),
+            }
         })
         .collect()
 }
@@ -862,7 +1137,11 @@ pub fn post_forms(html: &str, action: &str) -> Vec<PostForm> {
 #[track_caller]
 pub fn post_form(html: &str, action: &str) -> PostForm {
     let mut found = post_forms(html, action);
-    assert_eq!(found.len(), 1, "one form with action={action:?} in:\n{html}");
+    assert_eq!(
+        found.len(),
+        1,
+        "one form with action={action:?} in:\n{html}"
+    );
     found.remove(0)
 }
 
@@ -874,7 +1153,11 @@ pub fn account_href(id: i64) -> String {
 impl Browser<'_> {
     /// Submit `form` as a browser would: what it sends unasked, then `fill`.
     pub async fn submit(&mut self, form: &PostForm, fill: &[(&str, &str)]) -> Resp {
-        let mut body: Vec<(&str, &str)> = form.sent.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let mut body: Vec<(&str, &str)> = form
+            .sent
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         body.extend_from_slice(fill);
         let bytes = self.request("POST", &form.action, Some(&form_body(&body)));
         self.send(&bytes).await
@@ -884,7 +1167,13 @@ impl Browser<'_> {
     pub async fn account_page(&mut self, login: &str) -> String {
         let id = self.h.id(login);
         let r = self.get(&account_href(id)).await;
-        assert_eq!(r.status, 200, "GET the page of {login}: {} {:?}", r.status, r.header("location"));
+        assert_eq!(
+            r.status,
+            200,
+            "GET the page of {login}: {} {:?}",
+            r.status,
+            r.header("location")
+        );
         r.text()
     }
 
@@ -897,25 +1186,49 @@ impl Browser<'_> {
     /// Fill in and send the new-account form on /accounts.
     pub async fn create_account(&mut self, login: &str, password: &str, again: &str) -> Resp {
         let page = self.get("/accounts").await;
-        assert_eq!(page.status, 200, "GET /accounts: {} {:?}", page.status, page.header("location"));
+        assert_eq!(
+            page.status,
+            200,
+            "GET /accounts: {} {:?}",
+            page.status,
+            page.header("location")
+        );
         let form = post_form(&page.text(), "/accounts");
         let (user, pw) = (form.text_field(), form.password_fields());
-        assert_eq!(pw.len(), 2, "the new-account form takes the password twice: {:?}", form.fields);
-        self.submit(&form, &[(&user, login), (&pw[0], password), (&pw[1], again)]).await
+        assert_eq!(
+            pw.len(),
+            2,
+            "the new-account form takes the password twice: {:?}",
+            form.fields
+        );
+        self.submit(
+            &form,
+            &[(&user, login), (&pw[0], password), (&pw[1], again)],
+        )
+        .await
     }
 
     /// Fill in and send the set-password form on the account's page.
     pub async fn set_password(&mut self, login: &str, password: &str, again: &str) -> Resp {
         let form = self.account_form(login, "/account/password").await;
         let pw = form.password_fields();
-        assert!(pw.len() == 2 && form.fields.len() == 2, "the set-password form takes the password twice, nothing else: {:?}", form.fields);
-        self.submit(&form, &[(&pw[0], password), (&pw[1], again)]).await
+        assert!(
+            pw.len() == 2 && form.fields.len() == 2,
+            "the set-password form takes the password twice, nothing else: {:?}",
+            form.fields
+        );
+        self.submit(&form, &[(&pw[0], password), (&pw[1], again)])
+            .await
     }
 
     /// Press the button of the one form to `action` on the account's page.
     pub async fn press(&mut self, login: &str, action: &str) -> Resp {
         let form = self.account_form(login, action).await;
-        assert!(form.fields.is_empty(), "{action} is a button: {:?}", form.fields);
+        assert!(
+            form.fields.is_empty(),
+            "{action} is a button: {:?}",
+            form.fields
+        );
         self.submit(&form, &[]).await
     }
 
@@ -928,8 +1241,15 @@ impl Browser<'_> {
     /// The remove form of `address` on the account's page: the one that sends the address.
     pub async fn remove_form(&mut self, login: &str, address: &str) -> PostForm {
         let page = self.account_page(login).await;
-        let mut found: Vec<PostForm> = post_forms(&page, "/account/address/remove").into_iter().filter(|f| f.sent.iter().any(|(_, v)| v == address)).collect();
-        assert_eq!(found.len(), 1, "one remove form for {address} on the page of {login}:\n{page}");
+        let mut found: Vec<PostForm> = post_forms(&page, "/account/address/remove")
+            .into_iter()
+            .filter(|f| f.sent.iter().any(|(_, v)| v == address))
+            .collect();
+        assert_eq!(
+            found.len(),
+            1,
+            "one remove form for {address} on the page of {login}:\n{page}"
+        );
         found.remove(0)
     }
 
@@ -945,8 +1265,16 @@ impl Browser<'_> {
         assert_eq!(r.status, 200, "GET the setup link: {}", r.text());
         let forms = post_forms(&r.text(), "/setup");
         let pick = |n: usize| {
-            let f: Vec<&PostForm> = forms.iter().filter(|f| f.password_fields().len() == n).collect();
-            assert_eq!(f.len(), 1, "one setup form with {n} password field(s):\n{}", r.text());
+            let f: Vec<&PostForm> = forms
+                .iter()
+                .filter(|f| f.password_fields().len() == n)
+                .collect();
+            assert_eq!(
+                f.len(),
+                1,
+                "one setup form with {n} password field(s):\n{}",
+                r.text()
+            );
             f[0].clone()
         };
         (pick(1), pick(2))
@@ -955,13 +1283,24 @@ impl Browser<'_> {
     pub async fn setup_promote(&mut self, path: &str, login: &str, password: &str) -> Resp {
         let (form, _) = self.setup_forms(path).await;
         let (user, pw) = (form.text_field(), form.password_fields());
-        self.submit(&form, &[(&user, login), (&pw[0], password)]).await
+        self.submit(&form, &[(&user, login), (&pw[0], password)])
+            .await
     }
 
-    pub async fn setup_create(&mut self, path: &str, login: &str, password: &str, again: &str) -> Resp {
+    pub async fn setup_create(
+        &mut self,
+        path: &str,
+        login: &str,
+        password: &str,
+        again: &str,
+    ) -> Resp {
         let (_, form) = self.setup_forms(path).await;
         let (user, pw) = (form.text_field(), form.password_fields());
-        self.submit(&form, &[(&user, login), (&pw[0], password), (&pw[1], again)]).await
+        self.submit(
+            &form,
+            &[(&user, login), (&pw[0], password), (&pw[1], again)],
+        )
+        .await
     }
 }
 
@@ -972,24 +1311,56 @@ pub fn assert_done(r: &Resp, what: &str) {
     assert_eq!(r.status, 303, "{what}: 303, got {} {}", r.status, r.text());
     let to = location(r);
     let (path, query) = to.split_once('?').unwrap_or((to.as_str(), ""));
-    assert!(path == "/account" || path == "/accounts", "{what}: back to an account page or the list: {to}");
-    let done = query.split('&').find_map(|p| p.strip_prefix("done=")).unwrap_or_else(|| panic!("{what}: a done= code in {to}"));
-    assert!(!done.is_empty() && done.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'), "{what}: a fixed code: {to}");
+    assert!(
+        path == "/account" || path == "/accounts",
+        "{what}: back to an account page or the list: {to}"
+    );
+    let done = query
+        .split('&')
+        .find_map(|p| p.strip_prefix("done="))
+        .unwrap_or_else(|| panic!("{what}: a done= code in {to}"));
+    assert!(
+        !done.is_empty() && done.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
+        "{what}: a fixed code: {to}"
+    );
 }
 
 /// The input named `name` in `form` is marked invalid and points to its message.
 #[track_caller]
 pub fn assert_field_error(html: &str, action: &str, name: &str, what: &str) {
-    let form = post_forms(html, action).into_iter().next().unwrap_or_else(|| panic!("{what}: the {action} form is shown again:\n{html}"));
-    let field = form.fields.iter().find(|f| f.attr("name") == Some(name)).unwrap_or_else(|| panic!("{what}: field {name:?} in {:?}", form.fields));
-    assert_eq!(field.attr("aria-invalid"), Some("true"), "{what}: {name} is marked invalid: {field:?}");
-    let by = field.attr("aria-describedby").unwrap_or_else(|| panic!("{what}: {name} points to its message: {field:?}"));
-    assert!(text_of_id(html, by).is_some_and(|t| !t.is_empty()), "{what}: the message {by:?} has text");
+    let form = post_forms(html, action)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("{what}: the {action} form is shown again:\n{html}"));
+    let field = form
+        .fields
+        .iter()
+        .find(|f| f.attr("name") == Some(name))
+        .unwrap_or_else(|| panic!("{what}: field {name:?} in {:?}", form.fields));
+    assert_eq!(
+        field.attr("aria-invalid"),
+        Some("true"),
+        "{what}: {name} is marked invalid: {field:?}"
+    );
+    let by = field
+        .attr("aria-describedby")
+        .unwrap_or_else(|| panic!("{what}: {name} points to its message: {field:?}"));
+    assert!(
+        text_of_id(html, by).is_some_and(|t| !t.is_empty()),
+        "{what}: the message {by:?} has text"
+    );
 }
 
 /// The value the input named `name` of the form to `action` is shown with.
 pub fn field_value(html: &str, action: &str, name: &str) -> Option<String> {
-    post_forms(html, action).into_iter().next()?.fields.iter().find(|f| f.attr("name") == Some(name))?.attr("value").map(str::to_string)
+    post_forms(html, action)
+        .into_iter()
+        .next()?
+        .fields
+        .iter()
+        .find(|f| f.attr("name") == Some(name))?
+        .attr("value")
+        .map(str::to_string)
 }
 
 /// The page's text, tags stripped and entities decoded, whitespace collapsed.
@@ -1007,13 +1378,20 @@ pub fn visible_text(html: &str) -> String {
             _ => {}
         }
     }
-    unescape(&text).split_whitespace().collect::<Vec<_>>().join(" ")
+    unescape(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The first table: each row's cell texts (th or td) and markup.
 pub fn table_rows(html: &str) -> Vec<(Vec<String>, String)> {
-    let Some(start) = html.find("<table") else { return Vec::new() };
-    let end = html[start..].find("</table>").map_or(html.len(), |e| start + e);
+    let Some(start) = html.find("<table") else {
+        return Vec::new();
+    };
+    let end = html[start..]
+        .find("</table>")
+        .map_or(html.len(), |e| start + e);
     html[start..end]
         .split("<tr")
         .skip(1)
@@ -1021,10 +1399,16 @@ pub fn table_rows(html: &str) -> Vec<(Vec<String>, String)> {
             let row = row.split("</tr>").next().unwrap_or_default();
             let mut cells = Vec::new();
             let mut rest = row;
-            while let Some(p) = [rest.find("<th"), rest.find("<td")].into_iter().flatten().min() {
+            while let Some(p) = [rest.find("<th"), rest.find("<td")]
+                .into_iter()
+                .flatten()
+                .min()
+            {
                 let tag = &rest[p + 1..p + 3];
                 let open_end = rest[p..].find('>').map_or(rest.len(), |e| p + e + 1);
-                let close = rest[open_end..].find(&format!("</{tag}>")).map_or(rest.len(), |e| open_end + e);
+                let close = rest[open_end..]
+                    .find(&format!("</{tag}>"))
+                    .map_or(rest.len(), |e| open_end + e);
                 cells.push(visible_text(&rest[open_end..close]));
                 rest = &rest[close..];
             }
@@ -1049,5 +1433,6 @@ pub fn one_off(t: &str) -> String {
 
 /// The token of a setup path `/setup?t=<hex>`.
 pub fn setup_token(path: &str) -> &str {
-    path.strip_prefix("/setup?t=").unwrap_or_else(|| panic!("a setup path is /setup?t=<hex>: {path}"))
+    path.strip_prefix("/setup?t=")
+        .unwrap_or_else(|| panic!("a setup path is /setup?t=<hex>: {path}"))
 }

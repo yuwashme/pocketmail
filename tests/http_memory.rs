@@ -35,7 +35,8 @@ unsafe impl GlobalAlloc for Counting {
         let p = unsafe { System.realloc(ptr, layout, new_size) };
         if !p.is_null() {
             if new_size > layout.size() {
-                let now = LIVE.fetch_add(new_size - layout.size(), Ordering::SeqCst) + new_size - layout.size();
+                let now = LIVE.fetch_add(new_size - layout.size(), Ordering::SeqCst) + new_size
+                    - layout.size();
                 PEAK.fetch_max(now, Ordering::SeqCst);
             } else {
                 LIVE.fetch_sub(layout.size() - new_size, Ordering::SeqCst);
@@ -55,7 +56,9 @@ async fn a_25_mib_body_streams_to_disk_with_under_1_mib_of_heap() {
     let pki = Pki::local();
     let client = HttpClient::new(client_tls(&pki));
     let srv = serve_one(server_tls(&pki), |mut s| async move {
-        let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {SIZE}\r\n\r\n").as_bytes()).await;
+        let _ = s
+            .write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {SIZE}\r\n\r\n").as_bytes())
+            .await;
         let chunk = vec![b'm'; 64 * 1024];
         let mut sent = 0u64;
         while sent < SIZE {
@@ -72,7 +75,12 @@ async fn a_25_mib_body_streams_to_disk_with_under_1_mib_of_heap() {
 
     let base = LIVE.load(Ordering::SeqCst);
     PEAK.store(base, Ordering::SeqCst);
-    let res = tokio::time::timeout(Duration::from_secs(120), client.get_to_file(&url, &[], dir.path())).await.expect("no hang");
+    let res = tokio::time::timeout(
+        Duration::from_secs(120),
+        client.get_to_file(&url, &[], dir.path()),
+    )
+    .await
+    .expect("no hang");
     let peak = PEAK.load(Ordering::SeqCst);
 
     let (head, file) = res.unwrap();
@@ -81,5 +89,8 @@ async fn a_25_mib_body_streams_to_disk_with_under_1_mib_of_heap() {
     assert_eq!(std::fs::metadata(file.path()).unwrap().len(), SIZE);
     let grew = peak.saturating_sub(base);
     // Includes the in-process server's TLS buffers, so the client's share is smaller still.
-    assert!(grew < 1024 * 1024, "heap grew by {grew} bytes while streaming 25 MiB");
+    assert!(
+        grew < 1024 * 1024,
+        "heap grew by {grew} bytes while streaming 25 MiB"
+    );
 }

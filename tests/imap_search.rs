@@ -91,7 +91,15 @@ async fn address_keys_decode_rfc2047() {
     )
     .await;
     // "Štefan" exists only as =?ISO-8859-2?Q?=A9tefan?=.
-    let d = c.cmd_parts("U1", &[Part::Text("SEARCH CHARSET UTF-8 FROM "), Part::Lit("Štefan".as_bytes())]).await;
+    let d = c
+        .cmd_parts(
+            "U1",
+            &[
+                Part::Text("SEARCH CHARSET UTF-8 FROM "),
+                Part::Lit("Štefan".as_bytes()),
+            ],
+        )
+        .await;
     d.assert_ok();
     assert_eq!(d.search(), vec![4]);
 }
@@ -109,11 +117,31 @@ async fn subject_with_ascii_and_utf8_literal() {
         ],
     )
     .await;
-    let d = c.cmd_parts("U1", &[Part::Text("SEARCH CHARSET UTF-8 SUBJECT "), Part::Lit("čćž".as_bytes())]).await;
+    let d = c
+        .cmd_parts(
+            "U1",
+            &[
+                Part::Text("SEARCH CHARSET UTF-8 SUBJECT "),
+                Part::Lit("čćž".as_bytes()),
+            ],
+        )
+        .await;
     d.assert_ok();
-    assert_eq!(d.search(), vec![4], "encoded-word subject decoded before matching");
+    assert_eq!(
+        d.search(),
+        vec![4],
+        "encoded-word subject decoded before matching"
+    );
     // Case-insensitive beyond ASCII is not required; the exact decoded text must match.
-    let d = c.cmd_parts("U2", &[Part::Text("SEARCH CHARSET utf-8 SUBJECT "), Part::Lit("Šumniki".as_bytes())]).await;
+    let d = c
+        .cmd_parts(
+            "U2",
+            &[
+                Part::Text("SEARCH CHARSET utf-8 SUBJECT "),
+                Part::Lit("Šumniki".as_bytes()),
+            ],
+        )
+        .await;
     assert_eq!(d.search(), vec![4]);
 }
 
@@ -132,9 +160,25 @@ async fn body_and_text_keys_decode_the_body() {
         ],
     )
     .await;
-    let d = c.cmd_parts("U1", &[Part::Text("SEARCH CHARSET UTF-8 BODY "), Part::Lit("skače".as_bytes())]).await;
+    let d = c
+        .cmd_parts(
+            "U1",
+            &[
+                Part::Text("SEARCH CHARSET UTF-8 BODY "),
+                Part::Lit("skače".as_bytes()),
+            ],
+        )
+        .await;
     assert_eq!(d.search(), vec![4], "8-bit UTF-8 body");
-    let d = c.cmd_parts("U2", &[Part::Text("SEARCH CHARSET UTF-8 BODY "), Part::Lit("Café".as_bytes())]).await;
+    let d = c
+        .cmd_parts(
+            "U2",
+            &[
+                Part::Text("SEARCH CHARSET UTF-8 BODY "),
+                Part::Lit("Café".as_bytes()),
+            ],
+        )
+        .await;
     assert_eq!(d.search(), vec![6], "quoted-printable body decoded");
 }
 
@@ -243,10 +287,27 @@ async fn charsets_and_errors() {
     let d = c.cmd("C3", "SEARCH CHARSET ISO-8859-2 SUBJECT lunch").await;
     d.assert_no().assert_code("BADCHARSET");
     assert!(d.data("SEARCH").is_empty());
-    c.cmd("C4", "SEARCH CHARSET KOI8-R ALL").await.assert_no().assert_code("BADCHARSET");
+    c.cmd("C4", "SEARCH CHARSET KOI8-R ALL")
+        .await
+        .assert_no()
+        .assert_code("BADCHARSET");
 
-    for (i, bad) in ["FOO", "BEFORE 31-Feb-2026", "BEFORE yesterday", "LARGER x", "OR SEEN", "(SEEN", "UID", "HEADER X-Priority"].iter().enumerate() {
-        c.cmd(&format!("B{i}"), &format!("SEARCH {bad}")).await.assert_bad();
+    for (i, bad) in [
+        "FOO",
+        "BEFORE 31-Feb-2026",
+        "BEFORE yesterday",
+        "LARGER x",
+        "OR SEEN",
+        "(SEEN",
+        "UID",
+        "HEADER X-Priority",
+    ]
+    .iter()
+    .enumerate()
+    {
+        c.cmd(&format!("B{i}"), &format!("SEARCH {bad}"))
+            .await
+            .assert_bad();
     }
     c.cmd("Z", "NOOP").await.assert_ok();
 }
@@ -256,7 +317,11 @@ async fn empty_result_is_a_bare_search_line() {
     let (_h, mut c) = searching().await;
     let d = c.cmd("E1", "SEARCH DELETED").await;
     d.assert_ok();
-    let lines: Vec<_> = d.untagged.iter().filter(|l| l.to_ascii_uppercase().starts_with(b"* SEARCH")).collect();
+    let lines: Vec<_> = d
+        .untagged
+        .iter()
+        .filter(|l| l.to_ascii_uppercase().starts_with(b"* SEARCH"))
+        .collect();
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0].as_slice(), b"* SEARCH\r\n", "no trailing space");
 }
@@ -270,7 +335,11 @@ async fn uid_search_returns_uids() {
     let d = c.cmd("U2", "UID SEARCH UID 4:*").await;
     assert_eq!(d.search(), vec![4, 5, 6]);
     let d = c.cmd("U3", "UID SEARCH 1:2").await;
-    assert_eq!(d.search(), vec![1, 2], "a bare sequence set is still sequence numbers");
+    assert_eq!(
+        d.search(),
+        vec![1, 2],
+        "a bare sequence set is still sequence numbers"
+    );
 }
 
 #[tokio::test]
@@ -279,7 +348,11 @@ async fn search_sees_flag_changes_and_new_mail() {
     c.cmd("F1", "STORE 5 +FLAGS (\\Seen)").await.assert_ok();
     let d = c.cmd("F2", "SEARCH UNSEEN").await;
     assert_eq!(d.search(), vec![3, 4]);
-    h.deliver(SEARCH_LOGIN, b"From: new@example.test\r\nSubject: fresh\r\n\r\nhi\r\n", ms("06-Mar-2026 10:00:00 +0000"));
+    h.deliver(
+        SEARCH_LOGIN,
+        b"From: new@example.test\r\nSubject: fresh\r\n\r\nhi\r\n",
+        ms("06-Mar-2026 10:00:00 +0000"),
+    );
     c.cmd("F3", "NOOP").await.assert_ok();
     let d = c.cmd("F4", "SEARCH SUBJECT fresh").await;
     assert_eq!(d.search(), vec![7]);

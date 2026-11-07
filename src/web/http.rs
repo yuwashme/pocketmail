@@ -42,7 +42,11 @@ pub struct Request {
 
 impl Request {
     pub fn cookie(&self, name: &str) -> Option<&str> {
-        self.cookies.split(';').filter_map(|c| c.trim().split_once('=')).find(|(n, _)| *n == name).map(|(_, v)| v)
+        self.cookies
+            .split(';')
+            .filter_map(|c| c.trim().split_once('='))
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| v)
     }
 }
 
@@ -59,7 +63,13 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(Request, usize)>, u16> {
         Err(_) => return Err(400),
     };
     let http10 = req.version == Some(0);
-    let values = |name: &str| req.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(name)).map(|h| h.value).collect::<Vec<_>>();
+    let values = |name: &str| {
+        req.headers
+            .iter()
+            .filter(|h| h.name.eq_ignore_ascii_case(name))
+            .map(|h| h.value)
+            .collect::<Vec<_>>()
+    };
 
     let hosts = values("host");
     if hosts.len() > 1 || (hosts.is_empty() && !http10) {
@@ -71,7 +81,11 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(Request, usize)>, u16> {
         [v] => text(v),
         _ => None,
     };
-    let cookies = values("cookie").into_iter().filter_map(text).collect::<Vec<_>>().join("; ");
+    let cookies = values("cookie")
+        .into_iter()
+        .filter_map(text)
+        .collect::<Vec<_>>()
+        .join("; ");
     let (path, query) = decode_target(req.path.unwrap_or_default()).ok_or(400u16)?;
 
     let lengths = values("content-length");
@@ -96,16 +110,40 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(Request, usize)>, u16> {
 
     let form = values("content-type").first().is_some_and(|v| {
         let media = v.split(|&b| b == b';').next().unwrap_or_default();
-        media.trim_ascii().eq_ignore_ascii_case(b"application/x-www-form-urlencoded")
+        media
+            .trim_ascii()
+            .eq_ignore_ascii_case(b"application/x-www-form-urlencoded")
     });
-    let close = values("connection").iter().any(|v| v.split(|&b| b == b',').any(|t| t.trim_ascii().eq_ignore_ascii_case(b"close")));
+    let close = values("connection").iter().any(|v| {
+        v.split(|&b| b == b',')
+            .any(|t| t.trim_ascii().eq_ignore_ascii_case(b"close"))
+    });
     let keep_alive = !http10 && !close;
-    let proxied = ["forwarded", "x-forwarded-for", "x-real-ip", "cf-connecting-ip"].iter().any(|name| !values(name).is_empty());
+    let proxied = [
+        "forwarded",
+        "x-forwarded-for",
+        "x-real-ip",
+        "cf-connecting-ip",
+    ]
+    .iter()
+    .any(|name| !values(name).is_empty());
     let cf_client = match values("cf-connecting-ip").as_slice() {
         [value] => std::str::from_utf8(value).ok().and_then(|s| s.parse().ok()),
         _ => None,
     };
-    let request = Request { cf_client, method, path, query, host, origin, cookies, content_length: content_length.unwrap_or(0), form, keep_alive, proxied };
+    let request = Request {
+        cf_client,
+        method,
+        path,
+        query,
+        host,
+        origin,
+        cookies,
+        content_length: content_length.unwrap_or(0),
+        form,
+        keep_alive,
+        proxied,
+    };
     Ok(Some((request, len)))
 }
 
@@ -115,7 +153,9 @@ fn parse_length(v: &[u8]) -> Result<usize, u16> {
         return Err(400);
     }
     v.iter()
-        .try_fold(0usize, |n, d| n.checked_mul(10)?.checked_add(usize::from(d - b'0')))
+        .try_fold(0usize, |n, d| {
+            n.checked_mul(10)?.checked_add(usize::from(d - b'0'))
+        })
         .filter(|&n| n <= MAX_BODY)
         .ok_or(413)
 }
@@ -124,8 +164,13 @@ fn parse_length(v: &[u8]) -> Result<usize, u16> {
 /// None if malformed.
 fn decode_target(target: &str) -> Option<(String, String)> {
     let lower = target.get(..8).unwrap_or(target).to_ascii_lowercase();
-    let target = match ["http://", "https://"].iter().find(|s| lower.starts_with(*s)) {
-        Some(scheme) => target[scheme.len()..].find('/').map_or("/", |i| &target[scheme.len() + i..]),
+    let target = match ["http://", "https://"]
+        .iter()
+        .find(|s| lower.starts_with(*s))
+    {
+        Some(scheme) => target[scheme.len()..]
+            .find('/')
+            .map_or("/", |i| &target[scheme.len() + i..]),
         None => target,
     };
     if !target.is_ascii() || !target.starts_with('/') {
@@ -204,7 +249,13 @@ impl Response {
     }
 
     pub fn html(status: u16, body: Vec<u8>) -> Response {
-        Response { status, content_type: "text/html; charset=utf-8", cache_control: "no-store", body: Cow::Owned(body), headers: Vec::new() }
+        Response {
+            status,
+            content_type: "text/html; charset=utf-8",
+            cache_control: "no-store",
+            body: Cow::Owned(body),
+            headers: Vec::new(),
+        }
     }
 
     /// Status line, headers and (unless `head_only`) the body. `date` is the IMF-fixdate.

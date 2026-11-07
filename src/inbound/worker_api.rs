@@ -22,7 +22,10 @@ pub enum ApiError {
     /// Unparsable JSON, wrong JSON shape, bad percent-encoding in an envelope header, bad X-SSM-Size.
     BadResponse(String),
     /// Body length differs from X-SSM-Size.
-    SizeMismatch { expected: u64, actual: u64 },
+    SizeMismatch {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl fmt::Display for ApiError {
@@ -32,7 +35,9 @@ impl fmt::Display for ApiError {
             ApiError::Status(s) => write!(f, "unexpected status {s} from the Worker"),
             ApiError::Http(e) => write!(f, "{e}"),
             ApiError::BadResponse(m) => write!(f, "bad response from the Worker: {m}"),
-            ApiError::SizeMismatch { expected, actual } => write!(f, "X-SSM-Size {expected} but {actual} bytes received"),
+            ApiError::SizeMismatch { expected, actual } => {
+                write!(f, "X-SSM-Size {expected} but {actual} bytes received")
+            }
         }
     }
 }
@@ -88,7 +93,10 @@ pub fn parse_key(key: &str) -> Option<i64> {
 pub fn read_token_file(path: &Path) -> io::Result<String> {
     let token = std::fs::read_to_string(path)?.trim().to_string();
     if token.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "pull token file is empty"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pull token file is empty",
+        ));
     }
     Ok(token)
 }
@@ -115,7 +123,11 @@ fn percent_decode(s: &str) -> Option<String> {
     while i < b.len() {
         if b[i] == b'%' {
             let hex = b.get(i + 1..i + 3)?;
-            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok().filter(|_| hex.iter().all(u8::is_ascii_hexdigit))?);
+            out.push(
+                u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16)
+                    .ok()
+                    .filter(|_| hex.iter().all(u8::is_ascii_hexdigit))?,
+            );
             i += 3;
         } else {
             out.push(b[i]);
@@ -146,7 +158,11 @@ impl WorkerApi {
     pub fn new(client: HttpClient, base_url: &str, token: &str) -> Result<WorkerApi, ApiError> {
         let base = base_url.trim_end_matches('/').to_string();
         http::parse_url(&format!("{base}/messages"))?;
-        Ok(WorkerApi { client, base, auth: format!("Bearer {token}") })
+        Ok(WorkerApi {
+            client,
+            base,
+            auth: format!("Bearer {token}"),
+        })
     }
 
     fn headers(&self) -> [(&str, &str); 1] {
@@ -160,19 +176,29 @@ impl WorkerApi {
     /// `GET <base>/messages`, exactly one request.
     pub async fn list(&self) -> Result<Listing, ApiError> {
         let url = format!("{}/messages", self.base);
-        let (head, body) = self.client.send(Method::Get, &url, &self.headers(), MAX_LIST_BYTES).await?;
+        let (head, body) = self
+            .client
+            .send(Method::Get, &url, &self.headers(), MAX_LIST_BYTES)
+            .await?;
         check(&head)?;
-        let v: serde_json::Value = serde_json::from_slice(&body).map_err(|e| bad(format!("list JSON: {e}")))?;
+        let v: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|e| bad(format!("list JSON: {e}")))?;
         let ids = v
             .get("ids")
             .and_then(|i| i.as_array())
             .ok_or_else(|| bad("list without an ids array"))?
             .iter()
-            .map(|i| i.as_str().map(str::to_string).ok_or_else(|| bad("non-string id in list")))
+            .map(|i| {
+                i.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| bad("non-string id in list"))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let complete = match v.get("complete") {
             None => true,
-            Some(c) => c.as_bool().ok_or_else(|| bad("complete is not a boolean"))?,
+            Some(c) => c
+                .as_bool()
+                .ok_or_else(|| bad("complete is not a boolean"))?,
         };
         Ok(Listing { ids, complete })
     }
@@ -180,14 +206,19 @@ impl WorkerApi {
     /// `GET <base>/messages/<id>`, body streamed into a file in `tmp_dir`. No file is left in
     /// `tmp_dir` unless `Fetch::Message` is returned.
     pub async fn fetch(&self, id: &str, tmp_dir: &Path) -> Result<Fetch, ApiError> {
-        let (head, body) = self.client.get_to_file(&self.message_url(id), &self.headers(), tmp_dir).await?;
+        let (head, body) = self
+            .client
+            .get_to_file(&self.message_url(id), &self.headers(), tmp_dir)
+            .await?;
         if head.status == 404 {
             return Ok(Fetch::Gone);
         }
         check(&head)?;
         let envelope = |name: &str| match head.header(name) {
             None => Ok(String::new()),
-            Some(v) => percent_decode(v).ok_or_else(|| bad(format!("bad percent-encoding in {name}"))),
+            Some(v) => {
+                percent_decode(v).ok_or_else(|| bad(format!("bad percent-encoding in {name}")))
+            }
         };
         let envelope_from = envelope("X-SSM-Envelope-From")?;
         let envelope_to = envelope("X-SSM-Envelope-To")?;
@@ -202,17 +233,33 @@ impl WorkerApi {
                     .flatten()
                     .ok_or_else(|| bad("X-SSM-Size is not a number"))?;
                 if expected != body.len() {
-                    return Err(ApiError::SizeMismatch { expected, actual: body.len() });
+                    return Err(ApiError::SizeMismatch {
+                        expected,
+                        actual: body.len(),
+                    });
                 }
                 expected
             }
         };
-        Ok(Fetch::Message(Fetched { envelope_from, envelope_to, size, body }))
+        Ok(Fetch::Message(Fetched {
+            envelope_from,
+            envelope_to,
+            size,
+            body,
+        }))
     }
 
     /// `DELETE <base>/messages/<id>`: any 2xx => Ok.
     pub async fn delete(&self, id: &str) -> Result<(), ApiError> {
-        let (head, _) = self.client.send(Method::Delete, &self.message_url(id), &self.headers(), MAX_DELETE_BYTES).await?;
+        let (head, _) = self
+            .client
+            .send(
+                Method::Delete,
+                &self.message_url(id),
+                &self.headers(),
+                MAX_DELETE_BYTES,
+            )
+            .await?;
         check(&head)
     }
 }

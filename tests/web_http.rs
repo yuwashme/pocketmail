@@ -20,38 +20,70 @@ use synology_mail_server::web::{WebConfig, is_home_network};
 
 const MISSING: &str = "/no-such-page";
 
-// ---------------------------------------------------------------------------------------------
-// Helpers
+// // Helpers
 
 /// The headers every response carries. `css`: the stylesheet, cached for a year; anything else
 /// is never cached.
 fn assert_security_headers(r: &Resp, css: bool, what: &str) {
     let one = |name: &str| {
         let v = r.all(name);
-        assert_eq!(v.len(), 1, "{what}: exactly one {name}, got {v:?} in {:?}", r.headers);
+        assert_eq!(
+            v.len(),
+            1,
+            "{what}: exactly one {name}, got {v:?} in {:?}",
+            r.headers
+        );
         v[0].to_string()
     };
     assert_eq!(one("content-security-policy"), CSP, "{what}");
     assert_eq!(one("x-content-type-options"), "nosniff", "{what}");
-    assert_eq!(one("referrer-policy"), "same-origin", "{what}: a form POST must carry its Origin");
-    assert!(one("x-frame-options").eq_ignore_ascii_case("DENY"), "{what}");
-    assert_eq!(one("cache-control"), if css { CSS_CACHE } else { "no-store" }, "{what}");
-    assert!(r.header("strict-transport-security").is_none(), "{what}: no HSTS on a self-signed certificate");
+    assert_eq!(
+        one("referrer-policy"),
+        "same-origin",
+        "{what}: a form POST must carry its Origin"
+    );
+    assert!(
+        one("x-frame-options").eq_ignore_ascii_case("DENY"),
+        "{what}"
+    );
+    assert_eq!(
+        one("cache-control"),
+        if css { CSS_CACHE } else { "no-store" },
+        "{what}"
+    );
+    assert!(
+        r.header("strict-transport-security").is_none(),
+        "{what}: no HSTS on a self-signed certificate"
+    );
     if !r.body.is_empty() {
-        assert!(r.header("content-type").is_some(), "{what}: a body needs a Content-Type (nosniff)");
+        assert!(
+            r.header("content-type").is_some(),
+            "{what}: a body needs a Content-Type (nosniff)"
+        );
     }
     // RFC 9110 6.6.1: an origin server with a clock sends Date on 2xx-4xx (IMF-fixdate).
     if r.status < 500 {
         let date = one("date");
-        assert!(date.len() == 29 && date.ends_with(" GMT") && date.as_bytes()[3] == b',', "{what}: IMF-fixdate Date, got {date:?}");
+        assert!(
+            date.len() == 29 && date.ends_with(" GMT") && date.as_bytes()[3] == b',',
+            "{what}: IMF-fixdate Date, got {date:?}"
+        );
     }
 }
 
 /// The response is followed by a close: `Connection: close`, then EOF with nothing more.
 async fn assert_closes(w: &mut Web, r: &Resp, what: &str) {
-    assert!(r.closes(), "{what}: Connection: close before closing, got {:?}", r.headers);
+    assert!(
+        r.closes(),
+        "{what}: Connection: close before closing, got {:?}",
+        r.headers
+    );
     let rest = w.expect_closed().await;
-    assert!(rest.is_empty(), "{what}: nothing after the response, got {:?}", String::from_utf8_lossy(&rest));
+    assert!(
+        rest.is_empty(),
+        "{what}: nothing after the response, got {:?}",
+        String::from_utf8_lossy(&rest)
+    );
 }
 
 async fn status_of(h: &WebHarness, bytes: &[u8]) -> (Web, Resp) {
@@ -64,7 +96,11 @@ async fn status_of(h: &WebHarness, bytes: &[u8]) -> (Web, Resp) {
 async fn assert_timed_out(w: &mut Web, what: &str) {
     let rest = w.expect_closed().await;
     if !rest.is_empty() {
-        assert!(rest.starts_with(b"HTTP/1.1 408"), "{what}: close, or 408 then close; got {:?}", String::from_utf8_lossy(&rest));
+        assert!(
+            rest.starts_with(b"HTTP/1.1 408"),
+            "{what}: close, or 408 then close; got {:?}",
+            String::from_utf8_lossy(&rest)
+        );
     }
 }
 
@@ -73,14 +109,20 @@ async fn assert_timed_out(w: &mut Web, what: &str) {
 async fn open_with_head_timer(h: &WebHarness) -> Web {
     let mark = h.clock.mark();
     let w = h.open().await;
-    h.clock.wait_sleep_since(mark + 1, HEAD_TIMEOUT, "the request head timeout").await;
+    h.clock
+        .wait_sleep_since(mark + 1, HEAD_TIMEOUT, "the request head timeout")
+        .await;
     w
 }
 
 async fn wait_no_pending(clock: &ManualClock, what: &str) {
     let start = std::time::Instant::now();
     while !clock.pending().is_empty() {
-        assert!(start.elapsed() < TIMEOUT, "{what}: timers still pending: {:?}", clock.pending());
+        assert!(
+            start.elapsed() < TIMEOUT,
+            "{what}: timers still pending: {:?}",
+            clock.pending()
+        );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
@@ -89,8 +131,13 @@ async fn assert_refused_connection(h: &WebHarness) {
     match Web::open(h.addr, net::client_tls(&h.pki)).await {
         Err(_) => {}
         Ok(mut w) => {
-            let _ = w.try_write(&request("GET", &css_path(), &h.host(), &[], b"")).await;
-            assert!(w.read_response(false).await.is_none(), "a connection over the cap must be closed, not served");
+            let _ = w
+                .try_write(&request("GET", &css_path(), &h.host(), &[], b""))
+                .await;
+            assert!(
+                w.read_response(false).await.is_none(),
+                "a connection over the cap must be closed, not served"
+            );
         }
     }
 }
@@ -99,14 +146,19 @@ async fn assert_accepted_eventually(h: &WebHarness) {
     let start = std::time::Instant::now();
     loop {
         if let Ok(mut w) = Web::open(h.addr, net::client_tls(&h.pki)).await {
-            let _ = w.try_write(&request("GET", &css_path(), &h.host(), &[], b"")).await;
+            let _ = w
+                .try_write(&request("GET", &css_path(), &h.host(), &[], b""))
+                .await;
             if let Some(r) = w.read_response(false).await
                 && r.status == 200
             {
                 return;
             }
         }
-        assert!(start.elapsed() < TIMEOUT, "a slot freed by a closed connection is never reused");
+        assert!(
+            start.elapsed() < TIMEOUT,
+            "a slot freed by a closed connection is never reused"
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -141,13 +193,14 @@ async fn read_raw_until_closed(tcp: &mut tokio::net::TcpStream) -> Vec<u8> {
     got
 }
 
-// ---------------------------------------------------------------------------------------------
-// Configuration
+// // Configuration
 
 #[tokio::test]
 async fn web_config_defaults_match_the_design() {
     let pki = net::Pki::local();
-    let tls = synology_mail_server::tls::server_config(pki.cert_pem.as_bytes(), pki.key_pem.as_bytes()).unwrap();
+    let tls =
+        synology_mail_server::tls::server_config(pki.cert_pem.as_bytes(), pki.key_pem.as_bytes())
+            .unwrap();
     let c = WebConfig::new(tls);
     assert_eq!(c.max_conn, 32);
     assert_eq!(c.max_conn_per_ip, 8);
@@ -157,21 +210,36 @@ async fn web_config_defaults_match_the_design() {
     assert_eq!(c.keepalive_idle, KEEPALIVE_IDLE);
     assert_eq!(c.max_requests, 100);
     assert!(!c.allow_public);
-    assert!((c.is_allowed)("192.168.1.10".parse().unwrap()), "default is_allowed is is_home_network");
-    assert!(!(c.is_allowed)("8.8.8.8".parse().unwrap()), "default is_allowed is is_home_network");
+    assert!(
+        (c.is_allowed)("192.168.1.10".parse().unwrap()),
+        "default is_allowed is is_home_network"
+    );
+    assert!(
+        !(c.is_allowed)("8.8.8.8".parse().unwrap()),
+        "default is_allowed is is_home_network"
+    );
 }
 
-// ---------------------------------------------------------------------------------------------
-// TLS
+// // TLS
 
 #[tokio::test]
 async fn https_only_plain_http_gets_no_http_bytes() {
     let h = WebHarness::start().await;
     let mut tcp = tokio::net::TcpStream::connect(h.addr).await.unwrap();
-    let _ = tcp.write_all(format!("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", css_path(), h.host()).as_bytes()).await;
+    let _ = tcp
+        .write_all(format!("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", css_path(), h.host()).as_bytes())
+        .await;
     let got = read_raw_until_closed(&mut tcp).await;
-    assert!(!got.windows(5).any(|w| w == b"HTTP/"), "plain HTTP was answered: {:?}", String::from_utf8_lossy(&got));
-    assert!(got.is_empty() || got[0] == 0x15, "expected a TLS alert or a close, got {:02x?}", &got[..got.len().min(16)]);
+    assert!(
+        !got.windows(5).any(|w| w == b"HTTP/"),
+        "plain HTTP was answered: {:?}",
+        String::from_utf8_lossy(&got)
+    );
+    assert!(
+        got.is_empty() || got[0] == 0x15,
+        "expected a TLS alert or a close, got {:02x?}",
+        &got[..got.len().min(16)]
+    );
 }
 
 #[tokio::test]
@@ -179,12 +247,17 @@ async fn same_certificate_as_imap() {
     let h = WebHarness::start().await;
     // In-process both listeners get the same config; tests/web_serve.rs checks the real wiring.
     let web = h.open().await;
-    assert_eq!(web.peer_certificate().expect("web certificate"), h.pki.cert_der);
+    assert_eq!(
+        web.peer_certificate().expect("web certificate"),
+        h.pki.cert_der
+    );
 
     // TLS 1.2 is accepted too (as on IMAP), and ALPN is never negotiated (HTTP/1.1 only).
     let mut alpn = (*client_tls_versions(&h.pki, &[&rustls::version::TLS12])).clone();
     alpn.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    let mut w12 = Web::open(h.addr, std::sync::Arc::new(alpn)).await.expect("TLS 1.2 with ALPN offered");
+    let mut w12 = Web::open(h.addr, std::sync::Arc::new(alpn))
+        .await
+        .expect("TLS 1.2 with ALPN offered");
     assert_eq!(w12.tls_version(), Some(rustls::ProtocolVersion::TLSv1_2));
     assert_eq!(w12.alpn(), None, "no ALPN: h2 must never be selected");
     assert_eq!(w12.get(&h.host(), &css_path()).await.status, 200);
@@ -197,8 +270,16 @@ async fn tls_1_1_refused() {
     tcp.write_all(&tls11_client_hello()).await.unwrap();
     let got = read_raw_until_closed(&mut tcp).await;
     let server_hello = got.len() >= 6 && got[0] == 0x16 && got[5] == 0x02;
-    assert!(!server_hello, "TLS 1.1 got a ServerHello: {:02x?}", &got[..got.len().min(16)]);
-    assert!(got.is_empty() || got[0] == 0x15, "expected an alert or a close, got {:02x?}", &got[..got.len().min(16)]);
+    assert!(
+        !server_hello,
+        "TLS 1.1 got a ServerHello: {:02x?}",
+        &got[..got.len().min(16)]
+    );
+    assert!(
+        got.is_empty() || got[0] == 0x15,
+        "expected an alert or a close, got {:02x?}",
+        &got[..got.len().min(16)]
+    );
 }
 
 #[tokio::test]
@@ -206,19 +287,22 @@ async fn tls_handshake_times_out_after_10_s() {
     let h = WebHarness::start().await;
     let mark = h.clock.mark();
     let mut tcp = tokio::net::TcpStream::connect(h.addr).await.unwrap();
-    h.clock.wait_sleep_since(mark, HANDSHAKE_TIMEOUT, "the TLS handshake timeout").await;
+    h.clock
+        .wait_sleep_since(mark, HANDSHAKE_TIMEOUT, "the TLS handshake timeout")
+        .await;
     h.clock.advance(HANDSHAKE_TIMEOUT - Duration::from_secs(1));
     let mut b = [0u8; 16];
     assert!(
-        tokio::time::timeout(Duration::from_millis(100), tcp.read(&mut b)).await.is_err(),
+        tokio::time::timeout(Duration::from_millis(100), tcp.read(&mut b))
+            .await
+            .is_err(),
         "closed before the 10 s handshake timeout"
     );
     h.clock.advance(Duration::from_secs(1));
     read_raw_until_closed(&mut tcp).await;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Who may connect
+// // Who may connect
 
 #[test]
 fn home_network_table() {
@@ -274,10 +358,16 @@ fn home_network_table() {
         "64:ff9b::c0a8:10a",
     ];
     for a in allowed {
-        assert!(is_home_network(a.parse().unwrap()), "{a} is on the home network");
+        assert!(
+            is_home_network(a.parse().unwrap()),
+            "{a} is on the home network"
+        );
     }
     for a in refused {
-        assert!(!is_home_network(a.parse().unwrap()), "{a} is not on the home network");
+        assert!(
+            !is_home_network(a.parse().unwrap()),
+            "{a} is not on the home network"
+        );
     }
 }
 
@@ -286,16 +376,31 @@ async fn refused_peer_dropped_before_tls() {
     let h = WebHarness::start_with(|c| c.is_allowed = |ip| !ip.is_loopback()).await;
     let mark = h.clock.mark();
     let open = Web::open(h.addr, net::client_tls(&h.pki)).await;
-    assert!(open.is_err(), "a peer outside the home network is closed before the TLS handshake, not answered over TLS");
-    assert!(!h.clock.has_sleep_since(mark, HANDSHAKE_TIMEOUT), "no handshake is started for a refused peer");
+    assert!(
+        open.is_err(),
+        "a peer outside the home network is closed before the TLS handshake, not answered over TLS"
+    );
+    assert!(
+        !h.clock.has_sleep_since(mark, HANDSHAKE_TIMEOUT),
+        "no handshake is started for a refused peer"
+    );
 
     let mut tcp = tokio::net::TcpStream::connect(h.addr).await.unwrap();
     let got = read_raw_until_closed(&mut tcp).await;
-    assert!(got.is_empty(), "nothing is sent to a refused peer: {:02x?}", &got[..got.len().min(16)]);
+    assert!(
+        got.is_empty(),
+        "nothing is sent to a refused peer: {:02x?}",
+        &got[..got.len().min(16)]
+    );
     wait_no_pending(&h.clock, "after refused peers").await;
 }
 
-const PROXY_HEADERS: [&str; 4] = ["Forwarded: for=192.168.1.10", "X-Forwarded-For: 192.168.1.10", "X-Real-IP: 192.168.1.10", "CF-Connecting-IP: 192.168.1.10"];
+const PROXY_HEADERS: [&str; 4] = [
+    "Forwarded: for=192.168.1.10",
+    "X-Forwarded-For: 192.168.1.10",
+    "X-Real-IP: 192.168.1.10",
+    "CF-Connecting-IP: 192.168.1.10",
+];
 
 #[tokio::test]
 async fn proxied_request_403_unless_public() {
@@ -305,16 +410,28 @@ async fn proxied_request_403_unless_public() {
     let (u, p) = h.login_fields().await;
     for header in PROXY_HEADERS {
         for (what, bytes) in [
-            ("GET stylesheet", request("GET", &css_path(), &host, &[header], b"")),
-            ("GET /login", request("GET", "/login", &host, &[header], b"")),
+            (
+                "GET stylesheet",
+                request("GET", &css_path(), &host, &[header], b""),
+            ),
+            (
+                "GET /login",
+                request("GET", "/login", &host, &[header], b""),
+            ),
             ("GET /", request("GET", "/", &host, &[header], b"")),
         ] {
             let (_, r) = status_of(&h, &bytes).await;
-            assert_eq!(r.status, 403, "{what} with {header:?} from loopback: a reverse proxy hides the client, so the home-network check cannot hold");
+            assert_eq!(
+                r.status, 403,
+                "{what} with {header:?} from loopback: a reverse proxy hides the client, so the home-network check cannot hold"
+            );
             assert_security_headers(&r, false, &format!("403 to {what} with {header:?}"));
         }
         let mut b = h.browser();
-        let form = form_body(&[(&u, "user@example.com"), (&p, &harness::password("user@example.com"))]);
+        let form = form_body(&[
+            (&u, "user@example.com"),
+            (&p, &harness::password("user@example.com")),
+        ]);
         let mut bytes = b.request("POST", "/login", Some(&form));
         let at = bytes.windows(2).position(|w| w == b"\r\n").unwrap() + 2;
         bytes.splice(at..at, format!("{header}\r\n").into_bytes());
@@ -329,10 +446,24 @@ async fn proxied_request_403_unless_public() {
     })
     .await;
     for header in PROXY_HEADERS {
-        let (_, r) = status_of(&public, &request("GET", &css_path(), &public.host(), &[header], b"")).await;
-        assert_eq!(r.status, 200, "with allow_public a proxied request is served ({header:?})");
-        let (_, r) = status_of(&public, &request("GET", "/login", &public.host(), &[header], b"")).await;
-        assert_eq!(r.status, 200, "with allow_public the sign-in page is served ({header:?})");
+        let (_, r) = status_of(
+            &public,
+            &request("GET", &css_path(), &public.host(), &[header], b""),
+        )
+        .await;
+        assert_eq!(
+            r.status, 200,
+            "with allow_public a proxied request is served ({header:?})"
+        );
+        let (_, r) = status_of(
+            &public,
+            &request("GET", "/login", &public.host(), &[header], b""),
+        )
+        .await;
+        assert_eq!(
+            r.status, 200,
+            "with allow_public the sign-in page is served ({header:?})"
+        );
     }
 }
 
@@ -347,34 +478,128 @@ async fn allow_public_opens_it() {
     assert_eq!(r.status, 200);
 }
 
-// ---------------------------------------------------------------------------------------------
-// Headers on every response
+// // Headers on every response
 
 #[tokio::test]
 async fn every_response_has_csp_nosniff_no_store_deny() {
     let h = WebHarness::start().await;
     let host = h.host();
-    let long_head = request("GET", MISSING, &host, &[&format!("X-Pad: {}", "a".repeat(9000))], b"");
+    let long_head = request(
+        "GET",
+        MISSING,
+        &host,
+        &[&format!("X-Pad: {}", "a".repeat(9000))],
+        b"",
+    );
     let cases: Vec<(&str, Vec<u8>, bool, bool)> = vec![
-        ("200 stylesheet", request("GET", &css_path(), &host, &[], b""), true, false),
-        ("200 page", request("GET", "/login", &host, &[], b""), false, false),
-        ("303 redirect", request("GET", "/", &host, &[], b""), false, false),
-        ("HEAD stylesheet", request("HEAD", &css_path(), &host, &[], b""), true, true),
-        ("404", request("GET", MISSING, &host, &[], b""), false, false),
-        ("HEAD 404", request("HEAD", MISSING, &host, &[], b""), false, true),
-        ("405", request("PUT", MISSING, &host, &[], b""), false, false),
-        ("400 malformed", b"GET / HTTP/1.1\r\nHost localhost\r\n\r\n".to_vec(), false, false),
-        ("400 no Host", b"GET / HTTP/1.1\r\n\r\n".to_vec(), false, false),
+        (
+            "200 stylesheet",
+            request("GET", &css_path(), &host, &[], b""),
+            true,
+            false,
+        ),
+        (
+            "200 page",
+            request("GET", "/login", &host, &[], b""),
+            false,
+            false,
+        ),
+        (
+            "303 redirect",
+            request("GET", "/", &host, &[], b""),
+            false,
+            false,
+        ),
+        (
+            "HEAD stylesheet",
+            request("HEAD", &css_path(), &host, &[], b""),
+            true,
+            true,
+        ),
+        (
+            "404",
+            request("GET", MISSING, &host, &[], b""),
+            false,
+            false,
+        ),
+        (
+            "HEAD 404",
+            request("HEAD", MISSING, &host, &[], b""),
+            false,
+            true,
+        ),
+        (
+            "405",
+            request("PUT", MISSING, &host, &[], b""),
+            false,
+            false,
+        ),
+        (
+            "400 malformed",
+            b"GET / HTTP/1.1\r\nHost localhost\r\n\r\n".to_vec(),
+            false,
+            false,
+        ),
+        (
+            "400 no Host",
+            b"GET / HTTP/1.1\r\n\r\n".to_vec(),
+            false,
+            false,
+        ),
         ("431", long_head, false, false),
-        ("413", request("POST", MISSING, &host, &[&format!("Content-Type: {FORM}"), "Content-Length: 16385"], b""), false, false),
-        ("415", post(MISSING, &host, "text/plain", b"a=b"), false, false),
-        ("411", request("POST", MISSING, &host, &[&format!("Content-Type: {FORM}")], b""), false, false),
-        ("501", request("POST", MISSING, &host, &[&format!("Content-Type: {FORM}"), "Transfer-Encoding: chunked"], b"0\r\n\r\n"), false, false),
+        (
+            "413",
+            request(
+                "POST",
+                MISSING,
+                &host,
+                &[&format!("Content-Type: {FORM}"), "Content-Length: 16385"],
+                b"",
+            ),
+            false,
+            false,
+        ),
+        (
+            "415",
+            post(MISSING, &host, "text/plain", b"a=b"),
+            false,
+            false,
+        ),
+        (
+            "411",
+            request(
+                "POST",
+                MISSING,
+                &host,
+                &[&format!("Content-Type: {FORM}")],
+                b"",
+            ),
+            false,
+            false,
+        ),
+        (
+            "501",
+            request(
+                "POST",
+                MISSING,
+                &host,
+                &[
+                    &format!("Content-Type: {FORM}"),
+                    "Transfer-Encoding: chunked",
+                ],
+                b"0\r\n\r\n",
+            ),
+            false,
+            false,
+        ),
     ];
     for (what, bytes, css, head) in cases {
         let mut w = h.open().await;
         let _ = w.try_write(&bytes).await;
-        let r = w.read_response(head).await.unwrap_or_else(|| panic!("{what}: no response"));
+        let r = w
+            .read_response(head)
+            .await
+            .unwrap_or_else(|| panic!("{what}: no response"));
         assert_security_headers(&r, css, what);
     }
 }
@@ -383,13 +608,25 @@ async fn every_response_has_csp_nosniff_no_store_deny() {
 async fn css_cached_pages_not() {
     let h = WebHarness::start().await;
     let css = css_source();
-    assert!(!css.is_empty() && css.len() <= 8 * 1024, "src/web/style.css is small ({} bytes)", css.len());
+    assert!(
+        !css.is_empty() && css.len() <= 8 * 1024,
+        "src/web/style.css is small ({} bytes)",
+        css.len()
+    );
     let text = String::from_utf8(css.clone()).expect("UTF-8 stylesheet");
-    assert!(!text.contains("url(") && !text.contains("@import"), "CSP default-src 'none' blocks anything the stylesheet loads");
+    assert!(
+        !text.contains("url(") && !text.contains("@import"),
+        "CSP default-src 'none' blocks anything the stylesheet loads"
+    );
 
     let r = h.get(&css_path()).await;
     assert_eq!(r.status, 200);
-    assert!(r.header("content-type").is_some_and(|t| t.to_ascii_lowercase().starts_with("text/css")), "{:?}", r.headers);
+    assert!(
+        r.header("content-type")
+            .is_some_and(|t| t.to_ascii_lowercase().starts_with("text/css")),
+        "{:?}",
+        r.headers
+    );
     assert_eq!(r.header("cache-control"), Some(CSS_CACHE));
     assert_eq!(r.body, css, "the stylesheet is served as built in");
 
@@ -412,14 +649,27 @@ async fn head_has_get_headers_no_body() {
         // If HEAD sent a body, those bytes would be read as the next response head here.
         let get = w.get(&host, &path).await;
         assert_eq!(head.status, get.status, "{path}");
-        let without_date = |r: &Resp| r.headers.iter().filter(|(n, _)| !n.eq_ignore_ascii_case("date")).cloned().collect::<Vec<_>>();
-        assert_eq!(without_date(&head), without_date(&get), "{path}: HEAD carries GET's headers");
-        assert_eq!(head.header("content-length"), Some(get.body.len().to_string().as_str()), "{path}");
+        let without_date = |r: &Resp| {
+            r.headers
+                .iter()
+                .filter(|(n, _)| !n.eq_ignore_ascii_case("date"))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            without_date(&head),
+            without_date(&get),
+            "{path}: HEAD carries GET's headers"
+        );
+        assert_eq!(
+            head.header("content-length"),
+            Some(get.body.len().to_string().as_str()),
+            "{path}"
+        );
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Limits
+// // Limits
 
 #[tokio::test]
 async fn head_over_8_kib_431() {
@@ -427,12 +677,21 @@ async fn head_over_8_kib_431() {
     let host = h.host();
     let padded = |total: usize| {
         let bare = request("GET", &css_path(), &host, &["X-Pad: "], b"").len();
-        request("GET", &css_path(), &host, &[&format!("X-Pad: {}", "a".repeat(total - bare))], b"")
+        request(
+            "GET",
+            &css_path(),
+            &host,
+            &[&format!("X-Pad: {}", "a".repeat(total - bare))],
+            b"",
+        )
     };
     let at = padded(8192);
     assert_eq!(at.len(), 8192);
     let (_, r) = status_of(&h, &at).await;
-    assert_eq!(r.status, 200, "a head of exactly 8 KiB (blank line included) is accepted");
+    assert_eq!(
+        r.status, 200,
+        "a head of exactly 8 KiB (blank line included) is accepted"
+    );
 
     let (mut w, r) = status_of(&h, &padded(8193)).await;
     assert_eq!(r.status, 431);
@@ -441,10 +700,30 @@ async fn head_over_8_kib_431() {
     // 32 header fields (Host included) are fine, 33 are not.
     let fields = |n: usize| (1..n).map(|i| format!("X-H{i}: v")).collect::<Vec<_>>();
     let f32 = fields(32);
-    let (_, r) = status_of(&h, &request("GET", &css_path(), &host, &f32.iter().map(String::as_str).collect::<Vec<_>>(), b"")).await;
+    let (_, r) = status_of(
+        &h,
+        &request(
+            "GET",
+            &css_path(),
+            &host,
+            &f32.iter().map(String::as_str).collect::<Vec<_>>(),
+            b"",
+        ),
+    )
+    .await;
     assert_eq!(r.status, 200, "32 header fields");
     let f33 = fields(33);
-    let (mut w, r) = status_of(&h, &request("GET", &css_path(), &host, &f33.iter().map(String::as_str).collect::<Vec<_>>(), b"")).await;
+    let (mut w, r) = status_of(
+        &h,
+        &request(
+            "GET",
+            &css_path(),
+            &host,
+            &f33.iter().map(String::as_str).collect::<Vec<_>>(),
+            b"",
+        ),
+    )
+    .await;
     assert_eq!(r.status, 431, "33 header fields");
     assert_closes(&mut w, &r, "431 for 33 fields").await;
 
@@ -453,7 +732,10 @@ async fn head_over_8_kib_431() {
     let mut endless = format!("GET / HTTP/1.1\r\nHost: {host}\r\n").into_bytes();
     endless.extend_from_slice(format!("X-Pad: {}", "a".repeat(9000)).as_bytes());
     let _ = w.try_write(&endless).await;
-    let r = w.read_response(false).await.expect("431 without waiting for the end of the head");
+    let r = w
+        .read_response(false)
+        .await
+        .expect("431 without waiting for the end of the head");
     assert_eq!(r.status, 431);
     assert_closes(&mut w, &r, "431 for an endless head").await;
 }
@@ -471,13 +753,26 @@ async fn body_over_16_kib_413_unread() {
 
     // One byte more: 413 at once, without waiting for (or reading) the body, then close.
     let mut w = h.open().await;
-    w.write(&request("POST", MISSING, &host, &[&ct, "Content-Length: 16385"], b"")).await;
-    let r = w.read_response(false).await.expect("413 before any body byte is sent");
+    w.write(&request(
+        "POST",
+        MISSING,
+        &host,
+        &[&ct, "Content-Length: 16385"],
+        b"",
+    ))
+    .await;
+    let r = w
+        .read_response(false)
+        .await
+        .expect("413 before any body byte is sent");
     assert_eq!(r.status, 413);
     assert_closes(&mut w, &r, "413").await;
 
     // Also for huge announced lengths, even past u64 (RFC 9110 8.6: no overflow parsing errors).
-    for cl in ["Content-Length: 1000000000000", "Content-Length: 99999999999999999999999999"] {
+    for cl in [
+        "Content-Length: 1000000000000",
+        "Content-Length: 99999999999999999999999999",
+    ] {
         let (mut w, r) = status_of(&h, &request("POST", MISSING, &host, &[&ct, cl], b"")).await;
         assert_eq!(r.status, 413, "{cl}");
         assert_closes(&mut w, &r, cl).await;
@@ -487,12 +782,21 @@ async fn body_over_16_kib_413_unread() {
 #[tokio::test]
 async fn post_without_content_length_411() {
     let h = WebHarness::start().await;
-    let (_, r) = status_of(&h, &request("POST", MISSING, &h.host(), &[&format!("Content-Type: {FORM}")], b"")).await;
+    let (_, r) = status_of(
+        &h,
+        &request(
+            "POST",
+            MISSING,
+            &h.host(),
+            &[&format!("Content-Type: {FORM}")],
+            b"",
+        ),
+    )
+    .await;
     assert_eq!(r.status, 411);
 }
 
-// ---------------------------------------------------------------------------------------------
-// Timeouts (on the injected clock)
+// // Timeouts (on the injected clock)
 
 #[tokio::test]
 async fn slow_head_times_out() {
@@ -501,10 +805,14 @@ async fn slow_head_times_out() {
     w.write(b"GET /style").await;
     h.clock.advance(Duration::from_secs(5));
     // More bytes do not restart the timer: the whole head has 10 s.
-    w.write(format!("-{}.css HTTP/1.1\r\n", env!("CARGO_PKG_VERSION")).as_bytes()).await;
+    w.write(format!("-{}.css HTTP/1.1\r\n", env!("CARGO_PKG_VERSION")).as_bytes())
+        .await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     h.clock.advance(Duration::from_secs(4));
-    assert!(w.nothing_within(Duration::from_millis(100)).await, "closed before the 10 s head timeout");
+    assert!(
+        w.nothing_within(Duration::from_millis(100)).await,
+        "closed before the 10 s head timeout"
+    );
     h.clock.advance(Duration::from_secs(1));
     assert_timed_out(&mut w, "slow head").await;
 }
@@ -516,11 +824,23 @@ async fn slow_body_times_out() {
     h.clock.advance(Duration::from_secs(5));
     let mark = h.clock.mark();
     let ct = format!("Content-Type: {FORM}");
-    w.write(&request("POST", MISSING, &h.host(), &[&ct, "Content-Length: 100"], b"a=0123456789")).await;
-    h.clock.wait_sleep_since(mark, BODY_TIMEOUT, "the body timeout").await;
+    w.write(&request(
+        "POST",
+        MISSING,
+        &h.host(),
+        &[&ct, "Content-Length: 100"],
+        b"a=0123456789",
+    ))
+    .await;
+    h.clock
+        .wait_sleep_since(mark, BODY_TIMEOUT, "the body timeout")
+        .await;
     // The body has 10 s from the end of the head, not from the start of the connection.
     h.clock.advance(BODY_TIMEOUT - Duration::from_secs(1));
-    assert!(w.nothing_within(Duration::from_millis(100)).await, "closed before the 10 s body timeout");
+    assert!(
+        w.nothing_within(Duration::from_millis(100)).await,
+        "closed before the 10 s body timeout"
+    );
     h.clock.advance(Duration::from_secs(1));
     assert_timed_out(&mut w, "slow body").await;
 }
@@ -532,20 +852,34 @@ async fn keepalive_idle_closes_after_15_s() {
     let mark = h.clock.mark();
     let r = w.get(&h.host(), &css_path()).await;
     assert!(!r.closes(), "HTTP/1.1 keeps the connection open");
-    h.clock.wait_sleep_since(mark, KEEPALIVE_IDLE, "the keep-alive idle timeout").await;
+    h.clock
+        .wait_sleep_since(mark, KEEPALIVE_IDLE, "the keep-alive idle timeout")
+        .await;
     h.clock.advance(KEEPALIVE_IDLE - Duration::from_secs(1));
-    assert!(w.nothing_within(Duration::from_millis(100)).await, "closed before 15 s idle");
+    assert!(
+        w.nothing_within(Duration::from_millis(100)).await,
+        "closed before 15 s idle"
+    );
 
     // Still usable; the next request restarts the idle time.
     let mark = h.clock.mark();
     assert_eq!(w.get(&h.host(), &css_path()).await.status, 200);
-    h.clock.wait_sleep_since(mark, KEEPALIVE_IDLE, "the keep-alive idle timeout").await;
+    h.clock
+        .wait_sleep_since(mark, KEEPALIVE_IDLE, "the keep-alive idle timeout")
+        .await;
     h.clock.advance(KEEPALIVE_IDLE);
     assert_timed_out(&mut w, "keep-alive idle").await;
 
     // Connection: close from the client is honoured.
     let mut w = h.open().await;
-    w.write(&request("GET", &css_path(), &h.host(), &["Connection: close"], b"")).await;
+    w.write(&request(
+        "GET",
+        &css_path(),
+        &h.host(),
+        &["Connection: close"],
+        b"",
+    ))
+    .await;
     let r = w.read_response(false).await.expect("response");
     assert_eq!(r.status, 200);
     assert_closes(&mut w, &r, "client asked for close").await;
@@ -566,8 +900,7 @@ async fn hundred_requests_per_connection() {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Methods and malformed requests
+// // Methods and malformed requests
 
 #[tokio::test]
 async fn put_and_delete_405() {
@@ -576,14 +909,20 @@ async fn put_and_delete_405() {
         for path in [css_path(), MISSING.to_string()] {
             let (_, r) = status_of(&h, &request(method, &path, &h.host(), &[], b"")).await;
             assert_eq!(r.status, 405, "{method} {path}");
-            let allow = r.header("allow").unwrap_or_else(|| panic!("{method}: 405 needs Allow"));
+            let allow = r
+                .header("allow")
+                .unwrap_or_else(|| panic!("{method}: 405 needs Allow"));
             let mut got: Vec<String> = allow.split(',').map(|m| m.trim().to_string()).collect();
             got.sort();
             assert_eq!(got, ["GET", "HEAD", "POST"], "{method}: Allow");
         }
     }
     let (_, r) = status_of(&h, &request("FOO", MISSING, &h.host(), &[], b"")).await;
-    assert!(r.status == 405 || r.status == 501, "unknown method: 405 or 501, got {}", r.status);
+    assert!(
+        r.status == 405 || r.status == 501,
+        "unknown method: 405 or 501, got {}",
+        r.status
+    );
 }
 
 #[tokio::test]
@@ -630,14 +969,23 @@ async fn missing_host_400() {
     let h = WebHarness::start().await;
     for bytes in [
         format!("GET {} HTTP/1.1\r\n\r\n", css_path()),
-        format!("GET {} HTTP/1.1\r\nHost: {}\r\nHost: {}\r\n\r\n", css_path(), h.host(), h.host()),
+        format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nHost: {}\r\n\r\n",
+            css_path(),
+            h.host(),
+            h.host()
+        ),
     ] {
         let (mut w, r) = status_of(&h, bytes.as_bytes()).await;
         assert_eq!(r.status, 400, "{bytes:?}");
         assert_closes(&mut w, &r, &bytes).await;
     }
     // HTTP/1.0 needs no Host; it is answered (as HTTP/1.1) and closed.
-    let (mut w, r) = status_of(&h, format!("GET {} HTTP/1.0\r\n\r\n", css_path()).as_bytes()).await;
+    let (mut w, r) = status_of(
+        &h,
+        format!("GET {} HTTP/1.0\r\n\r\n", css_path()).as_bytes(),
+    )
+    .await;
     assert_eq!(r.status, 200);
     assert_closes(&mut w, &r, "HTTP/1.0").await;
 }
@@ -646,12 +994,35 @@ async fn missing_host_400() {
 async fn transfer_encoding_501() {
     let h = WebHarness::start().await;
     let ct = format!("Content-Type: {FORM}");
-    for te in ["Transfer-Encoding: chunked", "Transfer-Encoding: gzip, chunked"] {
-        let (mut w, r) = status_of(&h, &request("POST", MISSING, &h.host(), &[&ct, te], b"3\r\na=b\r\n0\r\n\r\n")).await;
+    for te in [
+        "Transfer-Encoding: chunked",
+        "Transfer-Encoding: gzip, chunked",
+    ] {
+        let (mut w, r) = status_of(
+            &h,
+            &request(
+                "POST",
+                MISSING,
+                &h.host(),
+                &[&ct, te],
+                b"3\r\na=b\r\n0\r\n\r\n",
+            ),
+        )
+        .await;
         assert_eq!(r.status, 501, "{te}");
         assert_closes(&mut w, &r, te).await;
     }
-    let (mut w, r) = status_of(&h, &request("GET", &css_path(), &h.host(), &["Transfer-Encoding: chunked"], b"0\r\n\r\n")).await;
+    let (mut w, r) = status_of(
+        &h,
+        &request(
+            "GET",
+            &css_path(),
+            &h.host(),
+            &["Transfer-Encoding: chunked"],
+            b"0\r\n\r\n",
+        ),
+    )
+    .await;
     assert_eq!(r.status, 501, "GET with Transfer-Encoding");
     assert_closes(&mut w, &r, "GET with Transfer-Encoding").await;
 }
@@ -660,7 +1031,18 @@ async fn transfer_encoding_501() {
 async fn cl_and_te_400() {
     let h = WebHarness::start().await;
     let ct = format!("Content-Type: {FORM}");
-    for hs in [[ct.as_str(), "Content-Length: 3", "Transfer-Encoding: chunked"], [ct.as_str(), "Transfer-Encoding: chunked", "Content-Length: 3"]] {
+    for hs in [
+        [
+            ct.as_str(),
+            "Content-Length: 3",
+            "Transfer-Encoding: chunked",
+        ],
+        [
+            ct.as_str(),
+            "Transfer-Encoding: chunked",
+            "Content-Length: 3",
+        ],
+    ] {
         let (mut w, r) = status_of(&h, &request("POST", MISSING, &h.host(), &hs, b"a=b")).await;
         assert_eq!(r.status, 400, "{hs:?}");
         assert_closes(&mut w, &r, "Content-Length with Transfer-Encoding").await;
@@ -670,13 +1052,26 @@ async fn cl_and_te_400() {
 #[tokio::test]
 async fn non_form_415() {
     let h = WebHarness::start().await;
-    for ct in ["text/plain", "multipart/form-data; boundary=x", "application/json", "application/x-www-form-urlencodedx"] {
+    for ct in [
+        "text/plain",
+        "multipart/form-data; boundary=x",
+        "application/json",
+        "application/x-www-form-urlencodedx",
+    ] {
         let (_, r) = status_of(&h, &post(MISSING, &h.host(), ct, b"a=b")).await;
         assert_eq!(r.status, 415, "{ct}");
     }
-    let (_, r) = status_of(&h, &request("POST", MISSING, &h.host(), &["Content-Length: 3"], b"a=b")).await;
+    let (_, r) = status_of(
+        &h,
+        &request("POST", MISSING, &h.host(), &["Content-Length: 3"], b"a=b"),
+    )
+    .await;
     assert_eq!(r.status, 415, "no Content-Type");
-    for ct in [FORM, "application/x-www-form-urlencoded; charset=UTF-8", "Application/X-WWW-Form-URLEncoded"] {
+    for ct in [
+        FORM,
+        "application/x-www-form-urlencoded; charset=UTF-8",
+        "Application/X-WWW-Form-URLEncoded",
+    ] {
         let (_, r) = status_of(&h, &post(MISSING, &h.host(), ct, b"a=b")).await;
         assert_eq!(r.status, 404, "{ct} is a form (and the path is unknown)");
     }
@@ -685,32 +1080,66 @@ async fn non_form_415() {
 #[tokio::test]
 async fn bad_percent_or_utf8_400() {
     let h = WebHarness::start().await;
-    for path in ["/%", "/%4", "/%ZZ", "/%G0", "/a%2", "/%C3%28", "/%FF", "/%E2%82%28", "/%ED%A0%80"] {
+    for path in [
+        "/%",
+        "/%4",
+        "/%ZZ",
+        "/%G0",
+        "/a%2",
+        "/%C3%28",
+        "/%FF",
+        "/%E2%82%28",
+        "/%ED%A0%80",
+    ] {
         let (_, r) = status_of(&h, &request("GET", path, &h.host(), &[], b"")).await;
         assert_eq!(r.status, 400, "{path}");
     }
     let r = h.get("/%C5%A0").await;
-    assert_eq!(r.status, 404, "valid percent-encoded UTF-8 is just an unknown path");
+    assert_eq!(
+        r.status, 404,
+        "valid percent-encoded UTF-8 is just an unknown path"
+    );
 }
 
 #[test]
 fn form_decoder() {
     use synology_mail_server::web::http::decode_form;
-    let ok = |b: &[u8]| decode_form(b).unwrap_or_else(|| panic!("{:?} decodes", String::from_utf8_lossy(b)));
-    let pairs = |v: &[(&str, &str)]| v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect::<Vec<_>>();
+    let ok = |b: &[u8]| {
+        decode_form(b).unwrap_or_else(|| panic!("{:?} decodes", String::from_utf8_lossy(b)))
+    };
+    let pairs = |v: &[(&str, &str)]| {
+        v.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect::<Vec<_>>()
+    };
 
     assert_eq!(ok(b""), pairs(&[]));
     assert_eq!(
         ok(b"login=test%40example.com&password=a+b%2Bc"),
         pairs(&[("login", "test@example.com"), ("password", "a b+c")])
     );
-    assert_eq!(ok(b"a=1&a=2&b=3"), pairs(&[("a", "1"), ("a", "2"), ("b", "3")]), "order and repeats kept");
+    assert_eq!(
+        ok(b"a=1&a=2&b=3"),
+        pairs(&[("a", "1"), ("a", "2"), ("b", "3")]),
+        "order and repeats kept"
+    );
     assert_eq!(ok(b"flag&x="), pairs(&[("flag", ""), ("x", "")]));
-    assert_eq!(ok(b"a=1&&b=2&"), pairs(&[("a", "1"), ("b", "2")]), "empty pieces skipped");
+    assert_eq!(
+        ok(b"a=1&&b=2&"),
+        pairs(&[("a", "1"), ("b", "2")]),
+        "empty pieces skipped"
+    );
     assert_eq!(ok(b"k=x=y"), pairs(&[("k", "x=y")]), "the first = splits");
     assert_eq!(ok(b"k=a%3Db%26c"), pairs(&[("k", "a=b&c")]));
-    assert_eq!(ok(b"k=%C5%A0tefan&n=%c4%8d"), pairs(&[("k", "Štefan"), ("n", "č")]));
-    assert_eq!(ok(b"a+b=c+d"), pairs(&[("a b", "c d")]), "+ is a space in names too");
+    assert_eq!(
+        ok(b"k=%C5%A0tefan&n=%c4%8d"),
+        pairs(&[("k", "Štefan"), ("n", "č")])
+    );
+    assert_eq!(
+        ok(b"a+b=c+d"),
+        pairs(&[("a b", "c d")]),
+        "+ is a space in names too"
+    );
     assert_eq!(ok("k=Š".as_bytes()), pairs(&[("k", "Š")]), "raw UTF-8");
 
     for bad in [
@@ -726,12 +1155,16 @@ fn form_decoder() {
         b"a=\xff",
         b"\xc3=a",
     ] {
-        assert_eq!(decode_form(bad), None, "{:?} is refused", String::from_utf8_lossy(bad));
+        assert_eq!(
+            decode_form(bad),
+            None,
+            "{:?} is refused",
+            String::from_utf8_lossy(bad)
+        );
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Robustness and resources
+// // Robustness and resources
 
 static PANICS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -741,7 +1174,10 @@ fn watch_panics() -> String {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let name = std::thread::current().name().unwrap_or("").to_string();
-        PANICS.lock().unwrap_or_else(|e| e.into_inner()).push(format!("{name}: {info}"));
+        PANICS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(format!("{name}: {info}"));
         prev(info);
     }));
     me
@@ -752,7 +1188,10 @@ impl Lcg {
     fn bytes(&mut self, n: usize) -> Vec<u8> {
         (0..n)
             .map(|_| {
-                self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                self.0 = self
+                    .0
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 (self.0 >> 33) as u8
             })
             .collect()
@@ -790,13 +1229,33 @@ async fn garbage_never_crashes_then_get_works() {
     cases.push(b"\r\n".repeat(10000));
     cases.push(format!("GET /{} HTTP/1.1\r\nHost: {host}\r\n\r\n", "a".repeat(9000)).into_bytes());
     cases.push(format!("GET / HTTP/1.1\r\nHost: {host}\r\nX: é\r\n\r\n").into_bytes());
-    cases.push(request("POST", MISSING, &host, &[&format!("Content-Type: {FORM}"), "Content-Length: 18446744073709551616"], b""));
+    cases.push(request(
+        "POST",
+        MISSING,
+        &host,
+        &[
+            &format!("Content-Type: {FORM}"),
+            "Content-Length: 18446744073709551616",
+        ],
+        b"",
+    ));
     cases.push(post(MISSING, &host, FORM, b"%%%%%%%%%%"));
     cases.push(post(MISSING, &host, FORM, b"a=\xff\xfe&\xc3"));
     cases.push(request("GET", "/%%%%", &host, &[], b""));
     cases.push(request("GET", "*", &host, &[], b""));
     cases.push(request("GET", "http://example.com/x", &host, &[], b""));
-    cases.push(request("GET", &css_path(), &host, &["Range: bytes=0-1", "Expect: 100-continue", "Upgrade: h2c", "Connection: Upgrade, HTTP2-Settings"], b""));
+    cases.push(request(
+        "GET",
+        &css_path(),
+        &host,
+        &[
+            "Range: bytes=0-1",
+            "Expect: 100-continue",
+            "Upgrade: h2c",
+            "Connection: Upgrade, HTTP2-Settings",
+        ],
+        b"",
+    ));
     let mut pipelined = request("GET", &css_path(), &host, &[], b"").repeat(50);
     pipelined.extend(rng.bytes(500));
     cases.push(pipelined);
@@ -810,8 +1269,17 @@ async fn garbage_never_crashes_then_get_works() {
     let r = h.get(&css_path()).await;
     assert_eq!(r.status, 200, "the server still answers after the garbage");
     wait_no_pending(&h.clock, "after the garbage").await;
-    let mine: Vec<String> = PANICS.lock().unwrap().iter().filter(|p| p.starts_with(&format!("{me}:"))).cloned().collect();
-    assert!(mine.is_empty(), "the server panicked (an abort in release builds): {mine:?}");
+    let mine: Vec<String> = PANICS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|p| p.starts_with(&format!("{me}:")))
+        .cloned()
+        .collect();
+    assert!(
+        mine.is_empty(),
+        "the server panicked (an abort in release builds): {mine:?}"
+    );
 }
 
 #[tokio::test]
@@ -845,11 +1313,22 @@ async fn per_ip_and_total_caps() {
 async fn idle_server_has_no_pending_timers() {
     let h = WebHarness::start().await;
     tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(h.clock.pending(), Vec::<Duration>::new(), "no timers without connections");
+    assert_eq!(
+        h.clock.pending(),
+        Vec::<Duration>::new(),
+        "no timers without connections"
+    );
 
     // The server closes (Connection: close).
     let mut w = h.open().await;
-    w.write(&request("GET", &css_path(), &h.host(), &["Connection: close"], b"")).await;
+    w.write(&request(
+        "GET",
+        &css_path(),
+        &h.host(),
+        &["Connection: close"],
+        b"",
+    ))
+    .await;
     let r = w.read_response(false).await.expect("response");
     assert_closes(&mut w, &r, "Connection: close").await;
     wait_no_pending(&h.clock, "after the server closed").await;

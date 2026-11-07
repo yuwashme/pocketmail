@@ -22,8 +22,8 @@ use tokio::sync::watch;
 use tokio_rustls::client::TlsStream;
 
 use synology_mail_server::imap::{Clock, ImapServer, ServerConfig};
-use synology_mail_server::store::{DeliveryOutcome, FlagOp, Flags, MailboxId, Store};
 use synology_mail_server::store::Delivery;
+use synology_mail_server::store::{DeliveryOutcome, FlagOp, Flags, MailboxId, Store};
 use synology_mail_server::time::parse_imap_datetime;
 
 use crate::net::{Pki, client_tls};
@@ -43,8 +43,7 @@ pub fn ms(date_time: &str) -> i64 {
     parse_imap_datetime(date_time).expect("valid date-time") * 1000
 }
 
-// ---------------------------------------------------------------------------------------------
-// Manual clock
+// // Manual clock
 
 /// A clock that only moves when the test calls `advance`. `sleep(d)` completes once `now()` has
 /// reached the time of the call plus `d`. Sleeps that are still pending can be inspected, so a
@@ -63,14 +62,23 @@ struct PendingGuard<'a> {
 
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
-        self.clock.pending.lock().unwrap().retain(|(id, _)| *id != self.id);
+        self.clock
+            .pending
+            .lock()
+            .unwrap()
+            .retain(|(id, _)| *id != self.id);
     }
 }
 
 impl ManualClock {
     pub fn new() -> Arc<ManualClock> {
         let (now, rx) = watch::channel(Duration::ZERO);
-        Arc::new(ManualClock { now, _rx: rx, pending: Mutex::new(Vec::new()), next: AtomicU64::new(0) })
+        Arc::new(ManualClock {
+            now,
+            _rx: rx,
+            pending: Mutex::new(Vec::new()),
+            next: AtomicU64::new(0),
+        })
     }
 
     pub fn advance(&self, d: Duration) {
@@ -79,7 +87,12 @@ impl ManualClock {
 
     /// Durations of the sleeps that have not completed yet.
     pub fn pending(&self) -> Vec<Duration> {
-        self.pending.lock().unwrap().iter().map(|(_, d)| *d).collect()
+        self.pending
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, d)| *d)
+            .collect()
     }
 
     /// Id the next `sleep` call will get. Take it before an action, then `wait_sleep_since` to know
@@ -90,7 +103,11 @@ impl ManualClock {
 
     /// Is a sleep of exactly `d`, started at or after `mark`, pending now?
     pub fn has_sleep_since(&self, mark: u64, d: Duration) -> bool {
-        self.pending.lock().unwrap().iter().any(|(id, p)| *id >= mark && *p == d)
+        self.pending
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, p)| *id >= mark && *p == d)
     }
 
     /// Wait (real time) until a sleep of exactly `d`, started at or after `mark`, is pending.
@@ -98,7 +115,13 @@ impl ManualClock {
     pub async fn wait_sleep_since(&self, mark: u64, d: Duration, what: &str) {
         let start = std::time::Instant::now();
         loop {
-            if self.pending.lock().unwrap().iter().any(|(id, p)| *id >= mark && *p == d) {
+            if self
+                .pending
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(id, p)| *id >= mark && *p == d)
+            {
                 return;
             }
             assert!(
@@ -125,7 +148,9 @@ impl Clock for ManualClock {
         let guard = PendingGuard { clock: self, id };
         Box::pin(async move {
             let _guard = guard;
-            let Some(deadline) = deadline else { return std::future::pending().await };
+            let Some(deadline) = deadline else {
+                return std::future::pending().await;
+            };
             loop {
                 if *rx.borrow_and_update() >= deadline {
                     return;
@@ -138,8 +163,7 @@ impl Clock for ManualClock {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Server harness
+// // Server harness
 
 pub struct Harness {
     pub tmp: tempfile::TempDir,
@@ -161,21 +185,37 @@ impl Harness {
         let tmp = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&tmp.path().join("data")).unwrap());
         let pki = Pki::local();
-        let tls = synology_mail_server::tls::server_config(pki.cert_pem.as_bytes(), pki.key_pem.as_bytes()).unwrap();
+        let tls = synology_mail_server::tls::server_config(
+            pki.cert_pem.as_bytes(),
+            pki.key_pem.as_bytes(),
+        )
+        .unwrap();
         let mut config = ServerConfig::new(tls);
         tweak(&mut config);
         let clock = ManualClock::new();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let server = ImapServer::start(listener, store.clone(), config, clock.clone()).unwrap();
         let addr = server.local_addr();
-        Harness { tmp, store, clock, pki, addr, server, seq: AtomicU64::new(1) }
+        Harness {
+            tmp,
+            store,
+            clock,
+            pki,
+            addr,
+            server,
+            seq: AtomicU64::new(1),
+        }
     }
 
     /// Account `login` (password `password(login)`) with address `login`; returns its INBOX.
     pub fn account(&self, login: &str) -> MailboxId {
         let id = self.store.create_account(login, &password(login)).unwrap();
         self.store.add_address(login, login).unwrap();
-        self.store.find_mailbox(id, "INBOX").unwrap().expect("INBOX").id
+        self.store
+            .find_mailbox(id, "INBOX")
+            .unwrap()
+            .expect("INBOX")
+            .id
     }
 
     /// Deliver `body` to `login` through the store; returns the new UID.
@@ -196,18 +236,29 @@ impl Harness {
     }
 
     pub fn set_flags(&self, mailbox: MailboxId, uid: u32, flags: Flags) {
-        self.store.store_flags(mailbox, &[uid], FlagOp::Replace, flags).unwrap();
+        self.store
+            .store_flags(mailbox, &[uid], FlagOp::Replace, flags)
+            .unwrap();
     }
 
     /// The stored message exactly as the server must serve it (Return-Path included).
     pub fn blob(&self, mailbox: MailboxId, uid: u32) -> Vec<u8> {
         let mut v = Vec::new();
-        self.store.open_message(mailbox, uid).unwrap().read_to_end_sync(&mut v);
+        self.store
+            .open_message(mailbox, uid)
+            .unwrap()
+            .read_to_end_sync(&mut v);
         v
     }
 
     pub fn stored_flags(&self, mailbox: MailboxId, uid: u32) -> Flags {
-        self.store.messages(mailbox).unwrap().into_iter().find(|m| m.uid == uid).expect("uid exists").flags
+        self.store
+            .messages(mailbox)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.uid == uid)
+            .expect("uid exists")
+            .flags
     }
 
     pub fn uidvalidity(&self, mailbox: MailboxId) -> u32 {
@@ -216,15 +267,23 @@ impl Harness {
 
     /// TLS connection whose greeting has been read and checked (`* OK`).
     pub async fn connect(&self) -> Client {
-        let mut c = Client::open(self.addr, &self.pki).await.expect("TLS handshake");
+        let mut c = Client::open(self.addr, &self.pki)
+            .await
+            .expect("TLS handshake");
         let g = c.read_response().await.expect("greeting");
-        assert!(g.starts_with(b"* OK"), "greeting must be * OK, got {}", show(&g));
+        assert!(
+            g.starts_with(b"* OK"),
+            "greeting must be * OK, got {}",
+            show(&g)
+        );
         c
     }
 
     pub async fn login(&self, login: &str) -> Client {
         let mut c = self.connect().await;
-        c.cmd("L1", &format!("LOGIN \"{login}\" \"{}\"", password(login))).await.assert_ok();
+        c.cmd("L1", &format!("LOGIN \"{login}\" \"{}\"", password(login)))
+            .await
+            .assert_ok();
         c
     }
 
@@ -234,8 +293,7 @@ impl Harness {
         c
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Mailbox setups
+    //     // Mailbox setups
 
     /// "test@example.com" with every fixture of tests/fixtures/mail delivered in `FIXTURES` order
     /// (UID i+1, INTERNALDATE `fixture_received_ms(i)`), no flags, none claimed as \Recent.
@@ -272,7 +330,11 @@ impl Harness {
             let body = format!(
                 "From: s{i}@example.test\r\nTo: {login}\r\nSubject: simple {i}\r\nDate: Sun, 1 Mar 2026 10:00:00 +0000\r\n\r\nbody {i}\r\n"
             );
-            self.deliver(login, body.as_bytes(), ms("01-Mar-2026 10:00:00 +0000") + i as i64 * 1000);
+            self.deliver(
+                login,
+                body.as_bytes(),
+                ms("01-Mar-2026 10:00:00 +0000") + i as i64 * 1000,
+            );
         }
         mb
     }
@@ -287,8 +349,7 @@ impl ReadAll for std::fs::File {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Fixtures
+// // Fixtures
 
 pub const FIXTURE_LOGIN: &str = "test@example.com";
 pub const SEARCH_LOGIN: &str = "search@example.com";
@@ -317,7 +378,11 @@ pub fn fixture(name: &str) -> Vec<u8> {
 
 /// Sequence number (= UID) of a fixture in the fixtures account.
 pub fn fixture_seq(name: &str) -> u32 {
-    FIXTURES.iter().position(|n| *n == name).expect("known fixture") as u32 + 1
+    FIXTURES
+        .iter()
+        .position(|n| *n == name)
+        .expect("known fixture") as u32
+        + 1
 }
 
 /// INTERNALDATE of fixture i: 1 Apr 2026 10:00:00.250 UTC plus i days.
@@ -330,7 +395,12 @@ pub fn golden(name: &str, kind: &str) -> Tok {
     let path = fixture_dir().join(format!("{name}.{kind}"));
     let text = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let mut toks = tokenize(&text);
-    assert_eq!(toks.len(), 1, "{} holds one parenthesized value", path.display());
+    assert_eq!(
+        toks.len(),
+        1,
+        "{} holds one parenthesized value",
+        path.display()
+    );
     toks.remove(0)
 }
 
@@ -417,8 +487,7 @@ pub fn search_messages() -> Vec<SearchMsg> {
     ]
 }
 
-// ---------------------------------------------------------------------------------------------
-// Client
+// // Client
 
 pub struct Client {
     s: TlsStream<TcpStream>,
@@ -436,12 +505,20 @@ impl Client {
         Client::open_with(addr, client_tls(pki)).await
     }
 
-    pub async fn open_with(addr: SocketAddr, tls: Arc<rustls::ClientConfig>) -> std::io::Result<Client> {
+    pub async fn open_with(
+        addr: SocketAddr,
+        tls: Arc<rustls::ClientConfig>,
+    ) -> std::io::Result<Client> {
         let tcp = TcpStream::connect(addr).await?;
         let name = ServerName::try_from("localhost").unwrap();
-        let s = tokio::time::timeout(TIMEOUT, tokio_rustls::TlsConnector::from(tls).connect(name, tcp))
-            .await
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out"))??;
+        let s = tokio::time::timeout(
+            TIMEOUT,
+            tokio_rustls::TlsConnector::from(tls).connect(name, tcp),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out")
+        })??;
         Ok(Client { s, buf: Vec::new() })
     }
 
@@ -544,12 +621,19 @@ impl Client {
                     self.write(&out).await;
                     out.clear();
                     loop {
-                        let r = self.read_response().await.expect("continuation or tagged response");
+                        let r = self
+                            .read_response()
+                            .await
+                            .expect("continuation or tagged response");
                         if r.starts_with(b"+") {
                             break;
                         }
                         if is_tagged(&r, tag) {
-                            return Done { tag: tag.into(), untagged, tagged: r };
+                            return Done {
+                                tag: tag.into(),
+                                untagged,
+                                tagged: r,
+                            };
                         }
                         untagged.push(r);
                     }
@@ -569,10 +653,17 @@ impl Client {
         let mut untagged = Vec::new();
         loop {
             let Some(r) = self.read_response().await else {
-                panic!("connection closed before the tagged response to {tag}; got:\n{}", show_all(&untagged));
+                panic!(
+                    "connection closed before the tagged response to {tag}; got:\n{}",
+                    show_all(&untagged)
+                );
             };
             if is_tagged(&r, tag) {
-                return Done { tag: tag.into(), untagged, tagged: r };
+                return Done {
+                    tag: tag.into(),
+                    untagged,
+                    tagged: r,
+                };
             }
             untagged.push(r);
         }
@@ -608,15 +699,18 @@ fn literal_len(line: &[u8]) -> Option<usize> {
 
 pub fn show(b: &[u8]) -> String {
     let s = String::from_utf8_lossy(b);
-    if s.len() > 2000 { format!("{}…[{} bytes]", &s[..s.floor_char_boundary(2000)], s.len()) } else { s.into_owned() }
+    if s.len() > 2000 {
+        format!("{}…[{} bytes]", &s[..s.floor_char_boundary(2000)], s.len())
+    } else {
+        s.into_owned()
+    }
 }
 
 pub fn show_all(lines: &[Vec<u8>]) -> String {
     lines.iter().map(|l| show(l)).collect::<Vec<_>>().join("")
 }
 
-// ---------------------------------------------------------------------------------------------
-// Completed command
+// // Completed command
 
 #[derive(Debug)]
 pub struct Done {
@@ -633,13 +727,20 @@ impl Done {
     /// OK, NO or BAD (upper-cased) from the tagged line.
     pub fn status(&self) -> String {
         let s = String::from_utf8_lossy(&self.tagged[self.tag.len() + 1..]).to_string();
-        s.split_whitespace().next().unwrap_or("").to_ascii_uppercase()
+        s.split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_uppercase()
     }
 
     /// Tagged line text after the status word (response code included).
     pub fn tagged_text(&self) -> String {
-        let s = String::from_utf8_lossy(&self.tagged[self.tag.len() + 1..]).trim_end().to_string();
-        s.split_once(' ').map(|(_, t)| t.to_string()).unwrap_or_default()
+        let s = String::from_utf8_lossy(&self.tagged[self.tag.len() + 1..])
+            .trim_end()
+            .to_string();
+        s.split_once(' ')
+            .map(|(_, t)| t.to_string())
+            .unwrap_or_default()
     }
 
     #[track_caller]
@@ -664,7 +765,11 @@ impl Done {
     #[track_caller]
     pub fn assert_refused(&self) -> &Done {
         let s = self.status();
-        assert!(s == "NO" || s == "BAD", "expected NO or BAD:\n{}", self.transcript());
+        assert!(
+            s == "NO" || s == "BAD",
+            "expected NO or BAD:\n{}",
+            self.transcript()
+        );
         self
     }
 
@@ -672,7 +777,11 @@ impl Done {
     #[track_caller]
     pub fn assert_code(&self, code: &str) -> &Done {
         let t = self.tagged_text().to_ascii_uppercase();
-        assert!(t.starts_with(&format!("[{}", code.to_ascii_uppercase())), "expected [{code}] in:\n{}", self.transcript());
+        assert!(
+            t.starts_with(&format!("[{}", code.to_ascii_uppercase())),
+            "expected [{code}] in:\n{}",
+            self.transcript()
+        );
         self
     }
 
@@ -686,7 +795,9 @@ impl Done {
                 let w: Vec<&str> = s.split_whitespace().collect();
                 w.first() == Some(&"*")
                     && (w.get(1).is_some_and(|x| x.eq_ignore_ascii_case(kind))
-                        || (w.get(1).is_some_and(|x| x.bytes().all(|b| b.is_ascii_digit()))
+                        || (w
+                            .get(1)
+                            .is_some_and(|x| x.bytes().all(|b| b.is_ascii_digit()))
                             && w.get(2).is_some_and(|x| x.eq_ignore_ascii_case(kind))))
             })
             .map(|l| tokenize(l))
@@ -744,8 +855,16 @@ impl Done {
     #[track_caller]
     pub fn search(&self) -> Vec<u32> {
         let v = self.data("SEARCH");
-        assert_eq!(v.len(), 1, "exactly one * SEARCH line expected:\n{}", self.transcript());
-        let mut n: Vec<u32> = v[0][2..].iter().map(|t| t.atom().parse().unwrap()).collect();
+        assert_eq!(
+            v.len(),
+            1,
+            "exactly one * SEARCH line expected:\n{}",
+            self.transcript()
+        );
+        let mut n: Vec<u32> = v[0][2..]
+            .iter()
+            .map(|t| t.atom().parse().unwrap())
+            .collect();
         n.sort();
         n
     }
@@ -770,14 +889,26 @@ pub struct Items(pub Vec<(String, Tok)>);
 
 impl Items {
     fn from_list(l: &[Tok]) -> Items {
-        assert!(l.len().is_multiple_of(2), "FETCH items come in pairs: {l:?}");
-        Items(l.chunks(2).map(|kv| (norm_key(kv[0].atom()), kv[1].clone())).collect())
+        assert!(
+            l.len().is_multiple_of(2),
+            "FETCH items come in pairs: {l:?}"
+        );
+        Items(
+            l.chunks(2)
+                .map(|kv| (norm_key(kv[0].atom()), kv[1].clone()))
+                .collect(),
+        )
     }
 
     #[track_caller]
     pub fn get(&self, key: &str) -> &Tok {
         let k = norm_key(key);
-        let v: Vec<&Tok> = self.0.iter().filter(|(n, _)| *n == k).map(|(_, v)| v).collect();
+        let v: Vec<&Tok> = self
+            .0
+            .iter()
+            .filter(|(n, _)| *n == k)
+            .map(|(_, v)| v)
+            .collect();
         assert!(!v.is_empty(), "no {k} in FETCH items {:?}", self.keys());
         v[v.len() - 1]
     }
@@ -793,7 +924,10 @@ impl Items {
 
     #[track_caller]
     pub fn bytes(&self, key: &str) -> Vec<u8> {
-        self.get(key).bytes().unwrap_or_else(|| panic!("{key} is NIL")).to_vec()
+        self.get(key)
+            .bytes()
+            .unwrap_or_else(|| panic!("{key} is NIL"))
+            .to_vec()
     }
 
     #[track_caller]
@@ -809,7 +943,10 @@ impl Items {
 }
 
 pub fn flag_set(t: &Tok) -> BTreeSet<String> {
-    t.list().iter().map(|f| f.atom().to_ascii_lowercase()).collect()
+    t.list()
+        .iter()
+        .map(|f| f.atom().to_ascii_lowercase())
+        .collect()
 }
 
 pub fn flags(list: &[&str]) -> BTreeSet<String> {
@@ -817,11 +954,14 @@ pub fn flags(list: &[&str]) -> BTreeSet<String> {
 }
 
 pub fn norm_key(k: &str) -> String {
-    k.replace('"', "").split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_uppercase()
+    k.replace('"', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_uppercase()
 }
 
-// ---------------------------------------------------------------------------------------------
-// Tokenizer
+// // Tokenizer
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Tok {
@@ -870,8 +1010,16 @@ pub fn tok_eq(a: &Tok, b: &Tok, ci_strings: bool) -> bool {
     match (a, b) {
         (Tok::Atom(x), Tok::Atom(y)) => x.eq_ignore_ascii_case(y),
         (Tok::Nil, Tok::Nil) => true,
-        (Tok::Str(x), Tok::Str(y)) => if ci_strings { x.eq_ignore_ascii_case(y) } else { x == y },
-        (Tok::List(x), Tok::List(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| tok_eq(p, q, ci_strings)),
+        (Tok::Str(x), Tok::Str(y)) => {
+            if ci_strings {
+                x.eq_ignore_ascii_case(y)
+            } else {
+                x == y
+            }
+        }
+        (Tok::List(x), Tok::List(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| tok_eq(p, q, ci_strings))
+        }
         _ => false,
     }
 }
@@ -920,7 +1068,11 @@ fn parse_seq(b: &[u8], i: &mut usize, nested: bool) -> Vec<Tok> {
             }
             _ => {
                 let a = parse_atom(b, i);
-                out.push(if a.eq_ignore_ascii_case("NIL") { Tok::Nil } else { Tok::Atom(a) });
+                out.push(if a.eq_ignore_ascii_case("NIL") {
+                    Tok::Nil
+                } else {
+                    Tok::Atom(a)
+                });
             }
         }
     }
@@ -950,13 +1102,19 @@ fn parse_quoted(b: &[u8], i: &mut usize) -> Vec<u8> {
 
 fn parse_literal(b: &[u8], i: &mut usize) -> Vec<u8> {
     let close = b[*i..].iter().position(|&c| c == b'}').expect("literal }") + *i;
-    let digits = std::str::from_utf8(&b[*i + 1..close]).unwrap().trim_end_matches('+');
+    let digits = std::str::from_utf8(&b[*i + 1..close])
+        .unwrap()
+        .trim_end_matches('+');
     let n: usize = digits.parse().expect("literal length");
     let mut p = close + 1;
     if b.get(p) == Some(&b'\r') {
         p += 1;
     }
-    assert_eq!(b.get(p), Some(&b'\n'), "literal announcement ends with CRLF");
+    assert_eq!(
+        b.get(p),
+        Some(&b'\n'),
+        "literal announcement ends with CRLF"
+    );
     p += 1;
     let data = b[p..p + n].to_vec();
     *i = p + n;
@@ -979,19 +1137,28 @@ fn parse_atom(b: &[u8], i: &mut usize) -> String {
     String::from_utf8_lossy(&b[start..*i]).into_owned()
 }
 
-// ---------------------------------------------------------------------------------------------
-// Small helpers
+// // Small helpers
 
 /// Standard base64 with padding (AUTHENTICATE PLAIN); test code, no crate.
 pub fn base64(data: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for c in data.chunks(3) {
-        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*c.get(2).unwrap_or(&0));
         out.push(A[(n >> 18) as usize & 63] as char);
         out.push(A[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { A[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { A[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            A[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            A[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -1007,7 +1174,10 @@ pub fn name_of(t: &Tok) -> String {
 
 /// A `(KEY value KEY value ...)` list (STATUS) as an upper-cased map.
 pub fn pairs(t: &Tok) -> BTreeMap<String, String> {
-    t.list().chunks(2).map(|kv| (kv[0].atom().to_ascii_uppercase(), kv[1].atom().to_string())).collect()
+    t.list()
+        .chunks(2)
+        .map(|kv| (kv[0].atom().to_ascii_uppercase(), kv[1].atom().to_string()))
+        .collect()
 }
 
 /// The text of the header block (through the blank line) and the body of a raw message.
@@ -1022,8 +1192,16 @@ pub fn split_message(raw: &[u8]) -> (Vec<u8>, Vec<u8>) {
 
 /// Byte slice between the end of `start` and the beginning of the next `end` (both must exist).
 pub fn between<'a>(raw: &'a [u8], start: &[u8], end: &[u8]) -> &'a [u8] {
-    let s = raw.windows(start.len()).position(|w| w == start).expect("start marker") + start.len();
-    let e = raw[s..].windows(end.len()).position(|w| w == end).expect("end marker") + s;
+    let s = raw
+        .windows(start.len())
+        .position(|w| w == start)
+        .expect("start marker")
+        + start.len();
+    let e = raw[s..]
+        .windows(end.len())
+        .position(|w| w == end)
+        .expect("end marker")
+        + s;
     &raw[s..e]
 }
 
@@ -1044,12 +1222,21 @@ impl Harness {
             if !c.nothing_within(Duration::from_millis(20)).await {
                 return c.read_until_tagged(tag).await;
             }
-            let sleeping = self.clock.pending.lock().unwrap().iter().any(|(id, d)| *id >= mark && *d == AUTH_DELAY);
+            let sleeping = self
+                .clock
+                .pending
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(id, d)| *id >= mark && *d == AUTH_DELAY);
             if sleeping {
                 self.clock.advance(AUTH_DELAY);
                 return c.read_until_tagged(tag).await;
             }
-            assert!(start.elapsed() < TIMEOUT, "no answer to {tag} and no Clock::sleep({AUTH_DELAY:?})");
+            assert!(
+                start.elapsed() < TIMEOUT,
+                "no answer to {tag} and no Clock::sleep({AUTH_DELAY:?})"
+            );
         }
     }
 }

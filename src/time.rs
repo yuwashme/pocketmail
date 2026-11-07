@@ -1,7 +1,9 @@
 //! Unix seconds <-> RFC 3501 `date-time` / `date-text`, all UTC. Calendar maths after Howard
 //! Hinnant's `days_from_civil` / `civil_from_days` (proleptic Gregorian, any year).
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 const DAY: i64 = 86_400;
 
 /// Days since 1970-01-01 for a civil date (month 1..=12).
@@ -45,7 +47,14 @@ fn days_in_month(y: i64, m: u32) -> u32 {
 pub fn civil(unix: i64) -> (i64, u32, u32, u32, u32, u32) {
     let (y, m, d) = civil_from_days(unix.div_euclid(DAY));
     let s = unix.rem_euclid(DAY);
-    (y, m, d, (s / 3600) as u32, (s / 60 % 60) as u32, (s % 60) as u32)
+    (
+        y,
+        m,
+        d,
+        (s / 3600) as u32,
+        (s / 60 % 60) as u32,
+        (s % 60) as u32,
+    )
 }
 
 /// "yyyymm" of the UTC month containing `unix` (blob directory names).
@@ -65,14 +74,20 @@ pub fn format_http_date(unix: i64) -> String {
     const WEEKDAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
     let (y, mo, d, h, mi, s) = civil(unix);
     let weekday = WEEKDAYS[unix.div_euclid(DAY).rem_euclid(7) as usize];
-    format!("{weekday}, {d:02} {} {y:04} {h:02}:{mi:02}:{s:02} GMT", MONTHS[mo as usize - 1])
+    format!(
+        "{weekday}, {d:02} {} {y:04} {h:02}:{mi:02}:{s:02} GMT",
+        MONTHS[mo as usize - 1]
+    )
 }
 
 /// RFC 3501 `date-time` without the surrounding DQUOTEs: day is `date-day-fixed`
 /// (space-padded: " 5-Nov-2026 09:14:00 +0000").
 pub fn format_imap_datetime(unix: i64) -> String {
     let (y, mo, d, h, mi, s) = civil(unix);
-    format!("{d:>2}-{}-{y:04} {h:02}:{mi:02}:{s:02} +0000", MONTHS[mo as usize - 1])
+    format!(
+        "{d:>2}-{}-{y:04} {h:02}:{mi:02}:{s:02} +0000",
+        MONTHS[mo as usize - 1]
+    )
 }
 
 /// A non-empty run of ASCII digits as a number (no sign, no spaces).
@@ -84,7 +99,10 @@ fn digits(s: &str) -> Option<u32> {
 }
 
 fn month(s: &str) -> Option<u32> {
-    MONTHS.iter().position(|m| m.eq_ignore_ascii_case(s)).map(|i| i as u32 + 1)
+    MONTHS
+        .iter()
+        .position(|m| m.eq_ignore_ascii_case(s))
+        .map(|i| i as u32 + 1)
 }
 
 /// Day number of a valid (day, month name, 4-digit year), else None.
@@ -105,7 +123,13 @@ pub fn parse_imap_datetime(s: &str) -> Option<i64> {
     if b.len() != 26 || !s.is_ascii() {
         return None;
     }
-    if b[2] != b'-' || b[6] != b'-' || b[11] != b' ' || b[14] != b':' || b[17] != b':' || b[20] != b' ' {
+    if b[2] != b'-'
+        || b[6] != b'-'
+        || b[11] != b' '
+        || b[14] != b':'
+        || b[17] != b':'
+        || b[20] != b' '
+    {
         return None;
     }
     let day = match &s[0..2] {
@@ -113,7 +137,11 @@ pub fn parse_imap_datetime(s: &str) -> Option<i64> {
         d => digits(d)?,
     };
     let days = date_days(day, &s[3..6], &s[7..11])?;
-    let (h, mi, sec) = (digits(&s[12..14])?, digits(&s[15..17])?, digits(&s[18..20])?);
+    let (h, mi, sec) = (
+        digits(&s[12..14])?,
+        digits(&s[15..17])?,
+        digits(&s[18..20])?,
+    );
     if h > 23 || mi > 59 || sec > 59 {
         return None;
     }
@@ -162,7 +190,10 @@ mod tests {
     fn helpers_format_utc() {
         assert_eq!(format_rfc3339(1_793_870_040), "2026-11-05T09:14:00Z");
         assert_eq!(yyyymm(1_773_576_000), "202603");
-        assert_eq!(format_http_date(784_111_777), "Sun, 06 Nov 1994 08:49:37 GMT");
+        assert_eq!(
+            format_http_date(784_111_777),
+            "Sun, 06 Nov 1994 08:49:37 GMT"
+        );
         assert_eq!(format_http_date(0), "Thu, 01 Jan 1970 00:00:00 GMT");
     }
 }

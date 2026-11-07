@@ -14,7 +14,9 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use imap_codec::imap_types::fetch::{MacroOrMessageDataItemNames, MessageDataItemName, Part, Section};
+use imap_codec::imap_types::fetch::{
+    MacroOrMessageDataItemNames, MessageDataItemName, Part, Section,
+};
 use imap_codec::imap_types::flag::{Flag, StoreResponse, StoreType};
 use imap_codec::imap_types::sequence::{SeqOrUid, Sequence, SequenceSet};
 use mail_parser::{MessageParser, MessagePart, MessageRef};
@@ -29,7 +31,12 @@ const CHUNK: usize = 128 * 1024;
 /// Header bytes read per step while looking for the blank line.
 const HEAD_STEP: usize = 8 * 1024;
 
-pub(crate) async fn fetch(s: &mut Session, set: &SequenceSet, items: MacroOrMessageDataItemNames<'_>, uid: bool) -> io::Result<Reply> {
+pub(crate) async fn fetch(
+    s: &mut Session,
+    set: &SequenceSet,
+    items: MacroOrMessageDataItemNames<'_>,
+    uid: bool,
+) -> io::Result<Reply> {
     let State::Selected(sel) = &s.state else {
         return Ok(Reply::no("No mailbox selected"));
     };
@@ -64,12 +71,26 @@ pub(crate) async fn fetch(s: &mut Session, set: &SequenceSet, items: MacroOrMess
 
     // Non-PEEK body sections set \Seen first, so the FLAGS sent below already show it.
     let mut changed = BTreeSet::new();
-    let sets_seen = names.iter().any(|n| matches!(n, MessageDataItemName::BodyExt { peek: false, .. } | MessageDataItemName::Rfc822 | MessageDataItemName::Rfc822Text));
+    let sets_seen = names.iter().any(|n| {
+        matches!(
+            n,
+            MessageDataItemName::BodyExt { peek: false, .. }
+                | MessageDataItemName::Rfc822
+                | MessageDataItemName::Rfc822Text
+        )
+    });
     if sets_seen && !read_only {
-        let unseen: Vec<u32> =
-            targets.iter().filter_map(|&(_, u)| meta_of(&metas, u)).filter(|m| !m.flags.contains(Flags::SEEN)).map(|m| m.uid).collect();
+        let unseen: Vec<u32> = targets
+            .iter()
+            .filter_map(|&(_, u)| meta_of(&metas, u))
+            .filter(|m| !m.flags.contains(Flags::SEEN))
+            .map(|m| m.uid)
+            .collect();
         if !unseen.is_empty() {
-            match s.blocking(move |st| st.store_flags(mailbox, &unseen, FlagOp::Add, Flags::SEEN)).await {
+            match s
+                .blocking(move |st| st.store_flags(mailbox, &unseen, FlagOp::Add, Flags::SEEN))
+                .await
+            {
                 Ok(updates) => {
                     for u in updates {
                         if let Ok(i) = metas.binary_search_by_key(&u.uid, |m| m.uid) {
@@ -90,8 +111,16 @@ pub(crate) async fn fetch(s: &mut Session, set: &SequenceSet, items: MacroOrMess
     let data_dir = s.store.data_dir().to_path_buf();
     for (n, &(seq, u)) in targets.iter().enumerate() {
         // A message expunged by another session after this one's uid list was read: skip it.
-        let Some(meta) = meta_of(&metas, u) else { continue };
-        let mut msg = Msg { path: data_dir.join(&meta.blob), size: meta.size, file: None, head: None, full: None };
+        let Some(meta) = meta_of(&metas, u) else {
+            continue;
+        };
+        let mut msg = Msg {
+            path: data_dir.join(&meta.blob),
+            size: meta.size,
+            file: None,
+            head: None,
+            full: None,
+        };
         let mut out = format!("* {seq} FETCH (").into_bytes();
         let mut first = true;
         for name in &names {
@@ -117,7 +146,14 @@ pub(crate) async fn fetch(s: &mut Session, set: &SequenceSet, items: MacroOrMess
 /// STORE / UID STORE (RFC 3501 6.4.6). Only `\Seen \Answered \Flagged \Draft` are kept;
 /// `\Deleted`, keywords and extension flags are accepted and ignored (they are not in
 /// PERMANENTFLAGS, RFC 3501 7.1), so nothing can mark mail for removal.
-pub(crate) async fn store(s: &mut Session, set: &SequenceSet, kind: StoreType, response: StoreResponse, list: &[Flag<'_>], uid: bool) -> io::Result<Reply> {
+pub(crate) async fn store(
+    s: &mut Session,
+    set: &SequenceSet,
+    kind: StoreType,
+    response: StoreResponse,
+    list: &[Flag<'_>],
+    uid: bool,
+) -> io::Result<Reply> {
     let State::Selected(sel) = &s.state else {
         return Ok(Reply::no("No mailbox selected"));
     };
@@ -139,7 +175,10 @@ pub(crate) async fn store(s: &mut Session, set: &SequenceSet, kind: StoreType, r
         return Ok(Reply::ok("STORE completed"));
     }
     let uids: Vec<u32> = targets.iter().map(|&(_, u)| u).collect();
-    let updates = match s.blocking(move |st| st.store_flags(mailbox, &uids, op, mask)).await {
+    let updates = match s
+        .blocking(move |st| st.store_flags(mailbox, &uids, op, mask))
+        .await
+    {
         Ok(u) => u,
         Err(e) => {
             crate::log_warn!("imap: STORE in mailbox {}: {e}", mailbox.0);
@@ -151,7 +190,9 @@ pub(crate) async fn store(s: &mut Session, set: &SequenceSet, kind: StoreType, r
     }
     let mut out = Vec::new();
     for (n, &(seq, u)) in targets.iter().enumerate() {
-        let Ok(i) = updates.binary_search_by_key(&u, |x| x.uid) else { continue };
+        let Ok(i) = updates.binary_search_by_key(&u, |x| x.uid) else {
+            continue;
+        };
         out.extend_from_slice(format!("* {seq} FETCH (").as_bytes());
         if uid {
             out.extend_from_slice(format!("UID {u} ").as_bytes());
@@ -164,13 +205,16 @@ pub(crate) async fn store(s: &mut Session, set: &SequenceSet, kind: StoreType, r
 }
 
 fn meta_of(metas: &[MessageMeta], uid: u32) -> Option<&MessageMeta> {
-    metas.binary_search_by_key(&uid, |m| m.uid).ok().map(|i| &metas[i])
+    metas
+        .binary_search_by_key(&uid, |m| m.uid)
+        .ok()
+        .map(|i| &metas[i])
 }
 
 /// (sequence number, uid) of every message in `set`, ascending and without duplicates. None: a
 /// sequence number past the last message (RFC 3501 9: BAD, `*` of an empty mailbox included).
 /// UID sets never fail: uids that do not exist are left out.
-pub(super) fn flag_mask(list:&[Flag])->Flags {
+pub(super) fn flag_mask(list: &[Flag]) -> Flags {
     let mut mask = Flags::empty();
     for f in list {
         mask = mask
@@ -187,7 +231,11 @@ pub(super) fn flag_mask(list:&[Flag])->Flags {
 }
 
 pub(super) fn resolve(set: &SequenceSet, uids: &[u32], by_uid: bool) -> Option<Vec<(u32, u32)>> {
-    let last = if by_uid { uids.last().copied().unwrap_or(0) } else { uids.len() as u32 };
+    let last = if by_uid {
+        uids.last().copied().unwrap_or(0)
+    } else {
+        uids.len() as u32
+    };
     let value = |x: &SeqOrUid| match x {
         SeqOrUid::Value(v) => v.get(),
         SeqOrUid::Asterisk => last,
@@ -210,7 +258,11 @@ pub(super) fn resolve(set: &SequenceSet, uids: &[u32], by_uid: bool) -> Option<V
             seqs.extend(lo..=hi);
         }
     }
-    Some(seqs.into_iter().map(|q| (q, uids[q as usize - 1])).collect())
+    Some(
+        seqs.into_iter()
+            .map(|q| (q, uids[q as usize - 1]))
+            .collect(),
+    )
 }
 
 /// `FLAGS (...)`. `\Deleted` is never shown (the server ignores it).
@@ -242,8 +294,12 @@ struct Msg {
     full: Option<Arc<Vec<u8>>>,
 }
 
-async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> io::Result<T> + Send + 'static) -> io::Result<T> {
-    tokio::task::spawn_blocking(f).await.map_err(io::Error::other)?
+async fn off_thread<T: Send + 'static>(
+    f: impl FnOnce() -> io::Result<T> + Send + 'static,
+) -> io::Result<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(io::Error::other)?
 }
 
 impl Msg {
@@ -303,12 +359,25 @@ impl Msg {
 
 /// Write one data item (name and value) to `out`; large values are streamed straight to the
 /// client after flushing `out`.
-async fn item(s: &mut Session, out: &mut Vec<u8>, msg: &mut Msg, meta: &MessageMeta, recent: bool, name: &MessageDataItemName<'_>) -> io::Result<()> {
+async fn item(
+    s: &mut Session,
+    out: &mut Vec<u8>,
+    msg: &mut Msg,
+    meta: &MessageMeta,
+    recent: bool,
+    name: &MessageDataItemName<'_>,
+) -> io::Result<()> {
     use MessageDataItemName as N;
     match name {
         N::Uid => out.extend_from_slice(format!("UID {}", meta.uid).as_bytes()),
         N::Flags => flags(out, meta.flags, recent),
-        N::InternalDate => out.extend_from_slice(format!("INTERNALDATE \"{}\"", crate::time::format_imap_datetime(meta.internal_date)).as_bytes()),
+        N::InternalDate => out.extend_from_slice(
+            format!(
+                "INTERNALDATE \"{}\"",
+                crate::time::format_imap_datetime(meta.internal_date)
+            )
+            .as_bytes(),
+        ),
         N::Rfc822Size => out.extend_from_slice(format!("RFC822.SIZE {}", meta.size).as_bytes()),
         N::Envelope => {
             out.extend_from_slice(b"ENVELOPE ");
@@ -321,7 +390,14 @@ async fn item(s: &mut Session, out: &mut Vec<u8>, msg: &mut Msg, meta: &MessageM
             let (_, text) = bs::split(&full);
             match parse(&full) {
                 Some(m) => bs::body(out, m.root(), Some(text), ext),
-                None => out.extend_from_slice(format!("(\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" {} {})", text.len(), bs::lines(text)).as_bytes()),
+                None => out.extend_from_slice(
+                    format!(
+                        "(\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" {} {})",
+                        text.len(),
+                        bs::lines(text)
+                    )
+                    .as_bytes(),
+                ),
             }
         }
         N::Rfc822Header => {
@@ -339,7 +415,9 @@ async fn item(s: &mut Session, out: &mut Vec<u8>, msg: &mut Msg, meta: &MessageM
             let len = msg.size.saturating_sub(h);
             stream(s, out, msg, h, len).await?;
         }
-        N::BodyExt { section, partial, .. } => {
+        N::BodyExt {
+            section, partial, ..
+        } => {
             out.extend_from_slice(b"BODY[");
             if let Some(sec) = section {
                 section_name(out, sec);
@@ -390,7 +468,11 @@ fn section_name(out: &mut Vec<u8>, sec: &Section<'_>) {
             if let Some(p) = p {
                 part(out, p, true);
             }
-            out.extend_from_slice(if matches!(sec, Section::HeaderFields(..)) { b"HEADER.FIELDS" } else { b"HEADER.FIELDS.NOT" });
+            out.extend_from_slice(if matches!(sec, Section::HeaderFields(..)) {
+                b"HEADER.FIELDS"
+            } else {
+                b"HEADER.FIELDS.NOT"
+            });
             names(out, list.as_ref());
         }
         Section::Text(p) => {
@@ -407,7 +489,11 @@ fn section_name(out: &mut Vec<u8>, sec: &Section<'_>) {
 }
 
 fn parse(raw: &[u8]) -> Option<mail_parser::Message<'_>> {
-    MessageParser::new().max_depth(20).max_parts(1000).max_encoded_nesting(2).parse(raw)
+    MessageParser::new()
+        .max_depth(20)
+        .max_parts(1000)
+        .max_encoded_nesting(2)
+        .parse(raw)
 }
 
 /// `[from, to)` of a value of length `len` after the partial `<o.l>`.
@@ -426,7 +512,13 @@ fn literal_part(out: &mut Vec<u8>, v: &[u8], partial: Option<(u64, u64)>) {
     wire::literal(out, &v[a as usize..b as usize]);
 }
 
-async fn body_section(s: &mut Session, out: &mut Vec<u8>, msg: &mut Msg, section: Option<&Section<'_>>, partial: Option<(u64, u64)>) -> io::Result<()> {
+async fn body_section(
+    s: &mut Session,
+    out: &mut Vec<u8>,
+    msg: &mut Msg,
+    section: Option<&Section<'_>>,
+    partial: Option<(u64, u64)>,
+) -> io::Result<()> {
     match section {
         None => {
             let (a, b) = clamp(msg.size, partial);
@@ -528,7 +620,13 @@ fn child_of_message(m: MessageRef<'_>, n: usize) -> Option<MessagePart<'_>> {
 }
 
 /// `{len}` and `len` bytes of the blob from `offset`, NUL replaced, read and sent in chunks.
-async fn stream(s: &mut Session, out: &mut Vec<u8>, msg: &mut Msg, offset: u64, len: u64) -> io::Result<()> {
+async fn stream(
+    s: &mut Session,
+    out: &mut Vec<u8>,
+    msg: &mut Msg,
+    offset: u64,
+    len: u64,
+) -> io::Result<()> {
     out.extend_from_slice(format!("{{{len}}}\r\n").as_bytes());
     if len == 0 {
         return Ok(());
@@ -569,12 +667,27 @@ mod tests {
     fn sequence_sets() {
         let uids = [10, 20, 30];
         let r = |v, by_uid| resolve(&set(v), &uids, by_uid);
-        assert_eq!(r(vec![Sequence::Range(n(1), SeqOrUid::Asterisk)], false), Some(vec![(1, 10), (2, 20), (3, 30)]));
+        assert_eq!(
+            r(vec![Sequence::Range(n(1), SeqOrUid::Asterisk)], false),
+            Some(vec![(1, 10), (2, 20), (3, 30)])
+        );
         assert_eq!(r(vec![Sequence::Single(n(4))], false), None);
-        assert_eq!(r(vec![Sequence::Range(n(15), n(25))], true), Some(vec![(2, 20)]));
-        assert_eq!(r(vec![Sequence::Range(n(100), SeqOrUid::Asterisk)], true), Some(vec![(3, 30)]));
-        assert_eq!(resolve(&set(vec![Sequence::Single(SeqOrUid::Asterisk)]), &[], false), None);
-        assert_eq!(resolve(&set(vec![Sequence::Single(SeqOrUid::Asterisk)]), &[], true), Some(vec![]));
+        assert_eq!(
+            r(vec![Sequence::Range(n(15), n(25))], true),
+            Some(vec![(2, 20)])
+        );
+        assert_eq!(
+            r(vec![Sequence::Range(n(100), SeqOrUid::Asterisk)], true),
+            Some(vec![(3, 30)])
+        );
+        assert_eq!(
+            resolve(&set(vec![Sequence::Single(SeqOrUid::Asterisk)]), &[], false),
+            None
+        );
+        assert_eq!(
+            resolve(&set(vec![Sequence::Single(SeqOrUid::Asterisk)]), &[], true),
+            Some(vec![])
+        );
     }
 
     #[test]
