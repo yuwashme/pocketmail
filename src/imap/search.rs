@@ -61,7 +61,12 @@ impl Key {
             Key::And(v) => v.iter().any(Key::needs_content),
             Key::Or(a, b) => a.needs_content() || b.needs_content(),
             Key::Not(k) => k.needs_content(),
-            Key::SentBefore(_) | Key::SentOn(_) | Key::SentSince(_) | Key::Header(..) | Key::Body(_) | Key::Text(_) => true,
+            Key::SentBefore(_)
+            | Key::SentOn(_)
+            | Key::SentSince(_)
+            | Key::Header(..)
+            | Key::Body(_)
+            | Key::Text(_) => true,
             _ => false,
         }
     }
@@ -73,14 +78,21 @@ fn charset_ok(c: &Charset<'_>) -> bool {
     c.eq_ignore_ascii_case("US-ASCII") || c.eq_ignore_ascii_case("UTF-8")
 }
 
-pub(crate) async fn search(s: &mut Session, charset: Option<&Charset<'_>>, criteria: &SearchKey<'_>, uid: bool) -> io::Result<Reply> {
+pub(crate) async fn search(
+    s: &mut Session,
+    charset: Option<&Charset<'_>>,
+    criteria: &SearchKey<'_>,
+    uid: bool,
+) -> io::Result<Reply> {
     let State::Selected(sel) = &s.state else {
         return Ok(Reply::no("No mailbox selected"));
     };
     if let Some(c) = charset
         && !charset_ok(c)
     {
-        return Ok(Reply::no("[BADCHARSET (US-ASCII UTF-8)] Unsupported charset"));
+        return Ok(Reply::no(
+            "[BADCHARSET (US-ASCII UTF-8)] Unsupported charset",
+        ));
     }
     let last_seq = sel.uids.len() as u32;
     let last_uid = sel.uids.last().copied().unwrap_or(0);
@@ -98,9 +110,17 @@ pub(crate) async fn search(s: &mut Session, charset: Option<&Charset<'_>>, crite
             let mut hits = Vec::new();
             for (i, &(u, recent)) in view.iter().enumerate() {
                 // Expunged meanwhile (not possible yet): no longer matches anything.
-                let Ok(m) = metas.binary_search_by_key(&u, |m| m.uid) else { continue };
+                let Ok(m) = metas.binary_search_by_key(&u, |m| m.uid) else {
+                    continue;
+                };
                 let seq = i as u32 + 1;
-                let mut msg = Msg { meta: &metas[m], seq, recent, dir: &data_dir, content: None };
+                let mut msg = Msg {
+                    meta: &metas[m],
+                    seq,
+                    recent,
+                    dir: &data_dir,
+                    content: None,
+                };
                 if !content {
                     msg.content = Some(Content::default());
                 }
@@ -160,7 +180,12 @@ fn convert(k: &SearchKey<'_>, last_seq: u32, last_uid: u32, depth: usize) -> Opt
     let hdr = |name: &str, v: &[u8]| Key::Header(name.as_bytes().to_vec(), lower(v));
     use SearchKey as S;
     Some(match k {
-        S::And(v) => Key::And(v.as_ref().iter().map(|k| convert(k, last_seq, last_uid, depth + 1)).collect::<Option<Vec<_>>>()?),
+        S::And(v) => Key::And(
+            v.as_ref()
+                .iter()
+                .map(|k| convert(k, last_seq, last_uid, depth + 1))
+                .collect::<Option<Vec<_>>>()?,
+        ),
         S::Or(a, b) => Key::Or(sub(a)?, sub(b)?),
         S::Not(a) => Key::Not(sub(a)?),
         S::All => Key::Const(true),
@@ -223,7 +248,11 @@ struct Msg<'a> {
 }
 
 fn parse(raw: &[u8]) -> Option<mail_parser::Message<'_>> {
-    MessageParser::new().max_depth(20).max_parts(1000).max_encoded_nesting(2).parse(raw)
+    MessageParser::new()
+        .max_depth(20)
+        .max_parts(1000)
+        .max_encoded_nesting(2)
+        .parse(raw)
 }
 
 /// The header block of the blob at `path`, through the blank line (all of it when there is none),
@@ -259,7 +288,16 @@ fn header_text(raw_value: &[u8]) -> Vec<u8> {
 }
 
 fn sent_day(d: DateTime) -> i64 {
-    DateTime { hour: 0, minute: 0, second: 0, tz_before_gmt: false, tz_hour: 0, tz_minute: 0, ..d }.to_timestamp()
+    DateTime {
+        hour: 0,
+        minute: 0,
+        second: 0,
+        tz_before_gmt: false,
+        tz_hour: 0,
+        tz_minute: 0,
+        ..d
+    }
+    .to_timestamp()
 }
 
 /// Header fields and decoded text of a nested message, then its parts.
@@ -306,7 +344,8 @@ impl Msg<'_> {
             if let Some(m) = parse(&head) {
                 let root = m.root();
                 for h in root.headers().iter() {
-                    c.headers.push((lower(h.raw_name().as_bytes()), header_text(h.raw_value())));
+                    c.headers
+                        .push((lower(h.raw_name().as_bytes()), header_text(h.raw_value())));
                 }
                 c.sent_day = root.date().filter(|d| d.is_valid()).map(sent_day);
             }
@@ -358,11 +397,17 @@ impl Msg<'_> {
             Key::SentBefore(d) => self.content()?.sent_day.is_some_and(|s| s < *d),
             Key::SentOn(d) => self.content()?.sent_day.is_some_and(|s| s == *d),
             Key::SentSince(d) => self.content()?.sent_day.is_some_and(|s| s >= *d),
-            Key::Header(name, v) => self.content()?.headers.iter().any(|(n, t)| n == name && contains(t, v)),
+            Key::Header(name, v) => self
+                .content()?
+                .headers
+                .iter()
+                .any(|(n, t)| n == name && contains(t, v)),
             Key::Body(v) => contains(self.body()?, v),
             Key::Text(v) => {
                 let c = self.content()?;
-                contains(&c.head, v) || c.headers.iter().any(|(_, t)| contains(t, v)) || contains(self.body()?, v)
+                contains(&c.head, v)
+                    || c.headers.iter().any(|(_, t)| contains(t, v))
+                    || contains(self.body()?, v)
             }
         })
     }
@@ -374,9 +419,18 @@ mod tests {
 
     #[test]
     fn header_text_decodes_encoded_words() {
-        assert_eq!(header_text(b" =?ISO-8859-2?Q?=A9tefan?= <s@example.si>\r\n"), "Štefan <s@example.si>".as_bytes());
-        assert_eq!(header_text(b" =?UTF-8?B?xaB1bW5pa2kgxI3Eh8W+?=\r\n"), "Šumniki čćž".as_bytes());
-        assert_eq!(header_text(b" Quarterly\r\n report\r\n"), b"quarterly report");
+        assert_eq!(
+            header_text(b" =?ISO-8859-2?Q?=A9tefan?= <s@example.si>\r\n"),
+            "Štefan <s@example.si>".as_bytes()
+        );
+        assert_eq!(
+            header_text(b" =?UTF-8?B?xaB1bW5pa2kgxI3Eh8W+?=\r\n"),
+            "Šumniki čćž".as_bytes()
+        );
+        assert_eq!(
+            header_text(b" Quarterly\r\n report\r\n"),
+            b"quarterly report"
+        );
     }
 
     /// imap-codec 1.0 stops at 9 nested levels (docs/DEVIATIONS.md); deeper commands get BAD.
@@ -391,7 +445,12 @@ mod tests {
         };
         let depth = (0..20).take_while(|&n| ok(n)).count();
         // 8 NOTs around a key = 9 levels pass; 9 NOTs (10 levels) fail.
-        assert_eq!(depth, 9, "parser accepts up to {} NOTs", depth.saturating_sub(1));
+        assert_eq!(
+            depth,
+            9,
+            "parser accepts up to {} NOTs",
+            depth.saturating_sub(1)
+        );
         assert!(!ok(depth + 5));
     }
 

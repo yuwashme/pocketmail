@@ -1,16 +1,25 @@
 //! A single sleeping task handles external submissions. Enqueue wakes it immediately.
-use std::{path::{Path,PathBuf},process::Stdio,sync::Arc,time::Duration};
+use crate::store::{
+    Store,
+    outbox::{Job, Next, Outcome},
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::io::AsyncWriteExt;
-use crate::store::{Store,outbox::{Job,Next,Outcome}};
 
-async fn submit(program:&Path,job:&Job)->Outcome {
+async fn submit(program: &Path, job: &Job) -> Outcome {
     let mut sender = job.from.clone();
     let mut original = None;
     if let Some(path) = &job.forward_blob {
         sender = std::env::var("SSM_FORWARD_FROM").unwrap_or_default();
         if !crate::store::preferences::valid_address(&sender)
-            || !crate::store::preferences::permitted_destination(&job.to) {
+            || !crate::store::preferences::permitted_destination(&job.to)
+        {
             return Outcome::Permanent;
         }
         match tokio::fs::File::open(path).await {
@@ -18,8 +27,15 @@ async fn submit(program:&Path,job:&Job)->Outcome {
             Err(_) => return Outcome::Temporary,
         }
     }
-    let Ok(mut child)=tokio::process::Command::new(program).args(["-i","-f",&sender,"--",&job.to])
-        .kill_on_drop(true).stdin(Stdio::piped()).stdout(Stdio::null()).spawn() else {return Outcome::Temporary};
+    let Ok(mut child) = tokio::process::Command::new(program)
+        .args(["-i", "-f", &sender, "--", &job.to])
+        .kill_on_drop(true)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+    else {
+        return Outcome::Temporary;
+    };
     let result=tokio::time::timeout(Duration::from_secs(45),async {
         let mut pipe=child.stdin.take().unwrap();
         let written = if let Some(mut file) = original {
@@ -49,29 +65,39 @@ async fn submit(program:&Path,job:&Job)->Outcome {
         written.map(|_|status)
     }).await;
     match result {
-        Ok(Ok(s)) if s.success()=>Outcome::Accepted,
-        Ok(Ok(s)) if s.code()==Some(75)=>Outcome::Temporary,
-        Ok(Ok(s)) if s.code()==Some(76)=>Outcome::Unknown,
-        Ok(Ok(_))=>Outcome::Permanent,
-        _=>Outcome::Unknown,
+        Ok(Ok(s)) if s.success() => Outcome::Accepted,
+        Ok(Ok(s)) if s.code() == Some(75) => Outcome::Temporary,
+        Ok(Ok(s)) if s.code() == Some(76) => Outcome::Unknown,
+        Ok(Ok(_)) => Outcome::Permanent,
+        _ => Outcome::Unknown,
     }
 }
-pub async fn run(store:Arc<Store>, program:PathBuf) {
+pub async fn run(store: Arc<Store>, program: PathBuf) {
     loop {
-        let s=store.clone();
-        match tokio::task::spawn_blocking(move||s.next_outgoing()).await {
-            Ok(Ok(Next::Send(job)))=>{
-                let result=submit(&program,&job).await;
-                let s=store.clone();
-                if !matches!(tokio::task::spawn_blocking(move||s.finish_outgoing(&job,result)).await,Ok(Ok(()))) {
+        let s = store.clone();
+        match tokio::task::spawn_blocking(move || s.next_outgoing()).await {
+            Ok(Ok(Next::Send(job))) => {
+                let result = submit(&program, &job).await;
+                let s = store.clone();
+                if !matches!(
+                    tokio::task::spawn_blocking(move || s.finish_outgoing(&job, result)).await,
+                    Ok(Ok(()))
+                ) {
                     crate::log_error!("outbox: could not record submission result");
                 }
             }
-            Ok(Ok(Next::Wait(None)))=>{tokio::select!{_=store.outbox_ready.notified()=>(),_=tokio::time::sleep(Duration::from_secs(120))=>()}},
-            Ok(Ok(Next::Wait(Some(secs))))=>{tokio::select!{
-                _=store.outbox_ready.notified()=>(), _=tokio::time::sleep(Duration::from_secs(secs.min(120)))=>(),
-            }}
-            _=>{crate::log_error!("outbox: queue unavailable");tokio::time::sleep(Duration::from_secs(30)).await;}
+            Ok(Ok(Next::Wait(None))) => {
+                tokio::select! {_=store.outbox_ready.notified()=>(),_=tokio::time::sleep(Duration::from_secs(120))=>()}
+            }
+            Ok(Ok(Next::Wait(Some(secs)))) => {
+                tokio::select! {
+                    _=store.outbox_ready.notified()=>(), _=tokio::time::sleep(Duration::from_secs(secs.min(120)))=>(),
+                }
+            }
+            _ => {
+                crate::log_error!("outbox: queue unavailable");
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
         }
     }
 }

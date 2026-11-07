@@ -73,10 +73,8 @@ test("lists, fetches and deletes a message", async () => {
   assert.deepEqual((await (await handleFetch(req("/messages"), e)).json()).ids, []);
 });
 
-// ---------------------------------------------------------------------------
-// Worker contract v1
-// ---------------------------------------------------------------------------
-
+// // Worker contract v1
+// 
 const MiB = 1024 * 1024;
 const enc = (s) => new TextEncoder().encode(s);
 

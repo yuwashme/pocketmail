@@ -45,12 +45,14 @@ pub(crate) struct Selected {
     pub recent: Vec<(u32, u32)>,
     /// UIDNEXT when the uid list was last refreshed.
     pub uidnext: u32,
-    pub modseq:u64,
+    pub modseq: u64,
 }
 
 impl Selected {
     pub fn is_recent(&self, uid: u32) -> bool {
-        self.recent.iter().any(|&(floor, upto)| uid > floor && uid <= upto)
+        self.recent
+            .iter()
+            .any(|&(floor, upto)| uid > floor && uid <= upto)
     }
     fn recent_count(&self) -> usize {
         self.uids.iter().filter(|&&u| self.is_recent(u)).count()
@@ -72,13 +74,22 @@ pub(crate) struct Reply {
 
 impl Reply {
     pub fn ok(t: impl Into<Cow<'static, str>>) -> Reply {
-        Reply { status: Status::Ok, text: t.into() }
+        Reply {
+            status: Status::Ok,
+            text: t.into(),
+        }
     }
     pub fn no(t: impl Into<Cow<'static, str>>) -> Reply {
-        Reply { status: Status::No, text: t.into() }
+        Reply {
+            status: Status::No,
+            text: t.into(),
+        }
     }
     pub fn bad(t: impl Into<Cow<'static, str>>) -> Reply {
-        Reply { status: Status::Bad, text: t.into() }
+        Reply {
+            status: Status::Bad,
+            text: t.into(),
+        }
     }
     pub fn internal() -> Reply {
         Reply::no("[UNAVAILABLE] Internal server error")
@@ -92,12 +103,18 @@ enum Flow {
 
 enum Frame {
     Message(Vec<u8>),
-    StagedAppend(Vec<u8>,tempfile::NamedTempFile,i64),
+    StagedAppend(Vec<u8>, tempfile::NamedTempFile, i64),
     /// Over-long line, over-size literal, LITERAL+ or an over-size command: BAD, then close.
-    Refuse { tag: String, text: &'static str, discard_line: bool },
+    Refuse {
+        tag: String,
+        text: &'static str,
+        discard_line: bool,
+    },
     /// APPEND announced a literal: answered NO at once instead of `+` (RFC 3501 7.5 lets the
     /// server refuse a synchronizing literal), so the client never sends the message.
-    RefuseAppend { tag: String },
+    RefuseAppend {
+        tag: String,
+    },
     Timeout,
     Eof,
 }
@@ -121,8 +138,23 @@ pub(crate) struct Session {
     bad_count: u32,
 }
 
-pub(crate) async fn run(io: TlsStream<TcpStream>, peer: SocketAddr, store: Arc<Store>, config: Arc<ServerConfig>, clock: Arc<dyn Clock>) {
-    let mut s = Session { io, rbuf: Vec::new(), peer, store, config, clock, state: State::NotAuth, bad_count: 0 };
+pub(crate) async fn run(
+    io: TlsStream<TcpStream>,
+    peer: SocketAddr,
+    store: Arc<Store>,
+    config: Arc<ServerConfig>,
+    clock: Arc<dyn Clock>,
+) {
+    let mut s = Session {
+        io,
+        rbuf: Vec::new(),
+        peer,
+        store,
+        config,
+        clock,
+        state: State::NotAuth,
+        bad_count: 0,
+    };
     if let Err(e) = s.serve().await {
         crate::log_debug!("imap: connection from {} ended: {e}", s.peer.ip());
     }
@@ -130,18 +162,25 @@ pub(crate) async fn run(io: TlsStream<TcpStream>, peer: SocketAddr, store: Arc<S
 
 impl Session {
     async fn serve(&mut self) -> io::Result<()> {
-        self.send(format!("* OK [CAPABILITY {CAPABILITY}] IMAP4rev1 server ready\r\n").as_bytes()).await?;
+        self.send(format!("* OK [CAPABILITY {CAPABILITY}] IMAP4rev1 server ready\r\n").as_bytes())
+            .await?;
         self.io.flush().await?;
         loop {
             let frame = self.next_frame().await?;
             let flow = match frame {
                 Frame::Eof => return Ok(()),
                 Frame::Timeout => {
-                    self.send(b"* BYE Autologout; idle for too long\r\n").await?;
+                    self.send(b"* BYE Autologout; idle for too long\r\n")
+                        .await?;
                     Flow::Close
                 }
-                Frame::Refuse { tag, text, discard_line } => {
-                    self.send(format!("{tag} BAD {text}\r\n").as_bytes()).await?;
+                Frame::Refuse {
+                    tag,
+                    text,
+                    discard_line,
+                } => {
+                    self.send(format!("{tag} BAD {text}\r\n").as_bytes())
+                        .await?;
                     self.io.flush().await?;
                     if discard_line {
                         self.discard_line().await?;
@@ -149,12 +188,18 @@ impl Session {
                     Flow::Close
                 }
                 Frame::RefuseAppend { tag } => {
-                    let text = if matches!(self.state, State::NotAuth) { "Log in first" } else { "[TOOBIG] APPEND literal exceeds the configured limit" };
+                    let text = if matches!(self.state, State::NotAuth) {
+                        "Log in first"
+                    } else {
+                        "[TOOBIG] APPEND literal exceeds the configured limit"
+                    };
                     self.send(format!("{tag} NO {text}\r\n").as_bytes()).await?;
                     Flow::Continue
                 }
-                Frame::Message(msg) => self.handle(msg,None).await?,
-                Frame::StagedAppend(msg,file,size) => self.handle(msg,Some((file,size))).await?,
+                Frame::Message(msg) => self.handle(msg, None).await?,
+                Frame::StagedAppend(msg, file, size) => {
+                    self.handle(msg, Some((file, size))).await?
+                }
             };
             self.io.flush().await?;
             if let Flow::Close = flow {
@@ -199,7 +244,11 @@ impl Session {
             if let Some(p) = self.rbuf[scanned..].iter().position(|&b| b == b'\n') {
                 let end = scanned + p + 1;
                 let content = end - 1 - usize::from(end >= 2 && self.rbuf[end - 2] == b'\r');
-                return Ok(if content > max { Line::TooLong } else { Line::Line(end) });
+                return Ok(if content > max {
+                    Line::TooLong
+                } else {
+                    Line::Line(end)
+                });
             }
             scanned = self.rbuf.len();
             if scanned > max + 1 {
@@ -217,8 +266,16 @@ impl Session {
             let end = match self.read_line().await? {
                 Line::Eof => return Ok(Frame::Eof),
                 Line::TooLong => {
-                    let tag = if msg.is_empty() { tag_of(&self.rbuf) } else { tag_of(&msg) };
-                    return Ok(Frame::Refuse { tag, text: "Command line too long", discard_line: true });
+                    let tag = if msg.is_empty() {
+                        tag_of(&self.rbuf)
+                    } else {
+                        tag_of(&msg)
+                    };
+                    return Ok(Frame::Refuse {
+                        tag,
+                        text: "Command line too long",
+                        discard_line: true,
+                    });
                 }
                 Line::Line(end) => end,
             };
@@ -227,43 +284,62 @@ impl Session {
             let n = match literal_announcement(&msg) {
                 None => return Ok(Frame::Message(msg)),
                 Some(Err(())) => {
-                    return Ok(Frame::Refuse { tag: tag_of(&msg), text: "Non-synchronizing literals are not supported", discard_line: false });
+                    return Ok(Frame::Refuse {
+                        tag: tag_of(&msg),
+                        text: "Non-synchronizing literals are not supported",
+                        discard_line: false,
+                    });
                 }
                 Some(Ok(n)) => n,
             };
             if is_append(&msg) {
-                if matches!(self.state, State::NotAuth) || n>25*1024*1024 {
-                    return Ok(Frame::RefuseAppend {tag:tag_of(&msg)});
+                if matches!(self.state, State::NotAuth) || n > 25 * 1024 * 1024 {
+                    return Ok(Frame::RefuseAppend { tag: tag_of(&msg) });
                 }
                 // Decode the metadata with an empty final literal. Earlier mailbox-name
                 // literals still take the normal bounded command path below.
-                let start=msg.iter().rposition(|&b|b==b'{').unwrap();
-                let mut header=msg[..start].to_vec();
+                let start = msg.iter().rposition(|&b| b == b'{').unwrap();
+                let mut header = msg[..start].to_vec();
                 header.extend_from_slice(b"{0}\r\n\r\n");
-                if matches!(CommandCodec::default().decode(&header),Ok(([],c)) if matches!(c.body,CommandBody::Append{..})) {
-                    let file=tempfile::NamedTempFile::new_in(self.store.data_dir().join("tmp"))?;
-                    let mut output=tokio::fs::File::from_std(file.reopen()?);
+                if matches!(CommandCodec::default().decode(&header),Ok(([],c)) if matches!(c.body,CommandBody::Append{..}))
+                {
+                    let file = tempfile::NamedTempFile::new_in(self.store.data_dir().join("tmp"))?;
+                    let mut output = tokio::fs::File::from_std(file.reopen()?);
                     self.send(b"+ Ready for literal data\r\n").await?;
                     self.io.flush().await?;
-                    let mut remaining=n;
-                    let mut nul=false;
-                    while remaining>0 {
-                        if self.rbuf.is_empty() && !self.fill().await? {return Ok(Frame::Eof);}
-                        let take=remaining.min(self.rbuf.len());
+                    let mut remaining = n;
+                    let mut nul = false;
+                    while remaining > 0 {
+                        if self.rbuf.is_empty() && !self.fill().await? {
+                            return Ok(Frame::Eof);
+                        }
+                        let take = remaining.min(self.rbuf.len());
                         nul |= self.rbuf[..take].contains(&0);
                         output.write_all(&self.rbuf[..take]).await?;
                         self.rbuf.drain(..take);
-                        remaining-=take;
+                        remaining -= take;
                     }
                     output.flush().await?;
-                    let Line::Line(end)=self.read_line().await? else {return Ok(Frame::Eof)};
-                    if nul || &self.rbuf[..end]!=b"\r\n" {return Ok(Frame::Refuse{tag:tag_of(&msg),text:"Invalid APPEND literal",discard_line:false});}
+                    let Line::Line(end) = self.read_line().await? else {
+                        return Ok(Frame::Eof);
+                    };
+                    if nul || &self.rbuf[..end] != b"\r\n" {
+                        return Ok(Frame::Refuse {
+                            tag: tag_of(&msg),
+                            text: "Invalid APPEND literal",
+                            discard_line: false,
+                        });
+                    }
                     self.rbuf.drain(..end);
-                    return Ok(Frame::StagedAppend(header,file,n as i64));
+                    return Ok(Frame::StagedAppend(header, file, n as i64));
                 }
             }
             if n > self.config.max_literal || msg.len().saturating_add(n) > MAX_MESSAGE {
-                return Ok(Frame::Refuse { tag: tag_of(&msg), text: "Literal too large", discard_line: false });
+                return Ok(Frame::Refuse {
+                    tag: tag_of(&msg),
+                    text: "Literal too large",
+                    discard_line: false,
+                });
             }
             self.send(b"+ Ready for literal data\r\n").await?;
             self.io.flush().await?;
@@ -316,34 +392,52 @@ impl Session {
 
     // ---- dispatch --------------------------------------------------------------------------
 
-    async fn handle(&mut self, msg: Vec<u8>,staged:Option<(tempfile::NamedTempFile,i64)>) -> io::Result<Flow> {
+    async fn handle(
+        &mut self,
+        msg: Vec<u8>,
+        staged: Option<(tempfile::NamedTempFile, i64)>,
+    ) -> io::Result<Flow> {
         let cmd = match CommandCodec::default().decode(&msg) {
             Ok(([], cmd)) => cmd,
-            _ => return self.syntax_error(&tag_of(&msg), "Syntax error or unknown command").await,
+            _ => {
+                return self
+                    .syntax_error(&tag_of(&msg), "Syntax error or unknown command")
+                    .await;
+            }
         };
         let tag = cmd.tag.as_ref().to_string();
         let authed = !matches!(self.state, State::NotAuth);
         let selected = matches!(self.state, State::Selected(_));
-        let allow_expunge = !matches!(cmd.body,CommandBody::Fetch{..}|CommandBody::Store{..}|CommandBody::Search{..});
+        let allow_expunge = !matches!(
+            cmd.body,
+            CommandBody::Fetch { .. } | CommandBody::Store { .. } | CommandBody::Search { .. }
+        );
         let reply = match cmd.body {
             CommandBody::Capability => {
-                self.send(format!("* CAPABILITY {CAPABILITY}\r\n").as_bytes()).await?;
+                self.send(format!("* CAPABILITY {CAPABILITY}\r\n").as_bytes())
+                    .await?;
                 Reply::ok("CAPABILITY completed")
             }
             CommandBody::Noop => Reply::ok("NOOP completed"),
             CommandBody::Logout => {
                 self.send(b"* BYE Logging out\r\n").await?;
-                self.send(format!("{tag} OK LOGOUT completed\r\n").as_bytes()).await?;
+                self.send(format!("{tag} OK LOGOUT completed\r\n").as_bytes())
+                    .await?;
                 return Ok(Flow::Close);
             }
 
-            CommandBody::Login { .. } | CommandBody::Authenticate { .. } if authed => Reply::no("Already authenticated"),
+            CommandBody::Login { .. } | CommandBody::Authenticate { .. } if authed => {
+                Reply::no("Already authenticated")
+            }
             CommandBody::Login { username, password } => {
                 let login = String::from_utf8_lossy(username.as_ref()).into_owned();
                 let pw = String::from_utf8_lossy(password.declassify().as_ref()).into_owned();
                 self.login(login, pw, true).await
             }
-            CommandBody::Authenticate { mechanism, initial_response } => {
+            CommandBody::Authenticate {
+                mechanism,
+                initial_response,
+            } => {
                 if !matches!(mechanism, AuthMechanism::Plain) {
                     Reply::no("Unsupported authentication mechanism")
                 } else if initial_response.is_some() {
@@ -382,64 +476,141 @@ impl Session {
 
             CommandBody::Select { mailbox } => self.select(&mailbox, false).await?,
             CommandBody::Examine { mailbox } => self.select(&mailbox, true).await?,
-            CommandBody::Create { .. } | CommandBody::Delete { .. } | CommandBody::Rename { .. } => {
-                Reply::no("[CANNOT] Only INBOX exists; mailboxes cannot be created, deleted or renamed")
+            CommandBody::Create { .. }
+            | CommandBody::Delete { .. }
+            | CommandBody::Rename { .. } => Reply::no(
+                "[CANNOT] Only INBOX exists; mailboxes cannot be created, deleted or renamed",
+            ),
+            CommandBody::Append {
+                mailbox,
+                flags,
+                date,
+                message,
+            } => {
+                let account = self.account().unwrap();
+                let name = mailbox_name(&mailbox);
+                let mask = super::fetch::flag_mask(&flags);
+                let raw = message.as_ref().to_vec();
+                let date = date
+                    .map(|d| d.as_ref().timestamp())
+                    .unwrap_or_else(crate::store::now_unix);
+                write_reply(
+                    self.blocking(move |s| {
+                        let dest = s
+                            .find_mailbox(account, &name)?
+                            .ok_or_else(|| StoreError::NotFound(name))?;
+                        if let Some((file, size)) = staged {
+                            s.append_staged(dest.id, mask, date, file, size)
+                        } else {
+                            s.append_message(dest.id, mask, date, &raw)
+                        }
+                    })
+                    .await,
+                    "APPEND completed",
+                )
             }
-            CommandBody::Append { mailbox, flags,date,message } => {
-                let account=self.account().unwrap();
-                let name=mailbox_name(&mailbox);
-                let mask=super::fetch::flag_mask(&flags);
-                let raw=message.as_ref().to_vec();
-                let date=date.map(|d|d.as_ref().timestamp()).unwrap_or_else(crate::store::now_unix);
-                write_reply(self.blocking(move|s| {
-                    let dest=s.find_mailbox(account,&name)?.ok_or_else(||StoreError::NotFound(name))?;
-                    if let Some((file,size))=staged {s.append_staged(dest.id,mask,date,file,size)} else {s.append_message(dest.id,mask,date,&raw)}
-                }).await,"APPEND completed")
-            },
             CommandBody::Subscribe { mailbox } => self.subscribe(&mailbox, true).await,
             CommandBody::Unsubscribe { mailbox } => self.subscribe(&mailbox, false).await,
-            CommandBody::List { reference, mailbox_wildcard } => self.list(&reference, &mailbox_wildcard, false).await?,
-            CommandBody::Lsub { reference, mailbox_wildcard } => self.list(&reference, &mailbox_wildcard, true).await?,
-            CommandBody::Status { mailbox, item_names } => self.status(&mailbox, &item_names).await?,
+            CommandBody::List {
+                reference,
+                mailbox_wildcard,
+            } => self.list(&reference, &mailbox_wildcard, false).await?,
+            CommandBody::Lsub {
+                reference,
+                mailbox_wildcard,
+            } => self.list(&reference, &mailbox_wildcard, true).await?,
+            CommandBody::Status {
+                mailbox,
+                item_names,
+            } => self.status(&mailbox, &item_names).await?,
 
-            CommandBody::Check | CommandBody::Close | CommandBody::Expunge | CommandBody::Search { .. } | CommandBody::Fetch { .. } | CommandBody::Store { .. } | CommandBody::Copy { .. }
+            CommandBody::Check
+            | CommandBody::Close
+            | CommandBody::Expunge
+            | CommandBody::Search { .. }
+            | CommandBody::Fetch { .. }
+            | CommandBody::Store { .. }
+            | CommandBody::Copy { .. }
                 if !selected =>
             {
                 Reply::no("No mailbox selected")
             }
             CommandBody::Check => Reply::ok("CHECK completed"),
             CommandBody::Close => {
-                let State::Selected(sel)=&self.state else {unreachable!()};
-                let (account,mb,ro)=(sel.account,sel.mailbox,sel.read_only);
-                let result=if ro {Ok(())} else {self.blocking(move|s|s.expunge_messages(mb)).await};
-                if result.is_ok(){self.state=State::Auth(account);}
-                write_reply(result,"CLOSE completed")
+                let State::Selected(sel) = &self.state else {
+                    unreachable!()
+                };
+                let (account, mb, ro) = (sel.account, sel.mailbox, sel.read_only);
+                let result = if ro {
+                    Ok(())
+                } else {
+                    self.blocking(move |s| s.expunge_messages(mb)).await
+                };
+                if result.is_ok() {
+                    self.state = State::Auth(account);
+                }
+                write_reply(result, "CLOSE completed")
             }
             CommandBody::Expunge => {
-                let State::Selected(sel)=&self.state else {unreachable!()};
-                let mb=sel.mailbox;
-                if sel.read_only {Reply::no("[READ-ONLY] Mailbox is read-only")} else {
-                    write_reply(self.blocking(move|s|s.expunge_messages(mb)).await,"EXPUNGE completed")
+                let State::Selected(sel) = &self.state else {
+                    unreachable!()
+                };
+                let mb = sel.mailbox;
+                if sel.read_only {
+                    Reply::no("[READ-ONLY] Mailbox is read-only")
+                } else {
+                    write_reply(
+                        self.blocking(move |s| s.expunge_messages(mb)).await,
+                        "EXPUNGE completed",
+                    )
                 }
             }
-            CommandBody::Copy { mailbox,sequence_set,uid } => {
-                let State::Selected(sel)=&self.state else {unreachable!()};
-                let (account,mb)=(sel.account,sel.mailbox);
-                if let Some(targets)=super::fetch::resolve(&sequence_set,&sel.uids,uid){
-                    let name=mailbox_name(&mailbox);
-                    write_reply(self.blocking(move|s|{
-                        let dest=s.find_mailbox(account,&name)?.ok_or_else(||StoreError::NotFound(name))?;
-                        s.copy_messages(mb,dest.id,&targets.into_iter().map(|(_,u)|u).collect::<Vec<_>>())
-                    }).await,"COPY completed")
-                } else {Reply::bad("Invalid message sequence number")}
+            CommandBody::Copy {
+                mailbox,
+                sequence_set,
+                uid,
+            } => {
+                let State::Selected(sel) = &self.state else {
+                    unreachable!()
+                };
+                let (account, mb) = (sel.account, sel.mailbox);
+                if let Some(targets) = super::fetch::resolve(&sequence_set, &sel.uids, uid) {
+                    let name = mailbox_name(&mailbox);
+                    write_reply(
+                        self.blocking(move |s| {
+                            let dest = s
+                                .find_mailbox(account, &name)?
+                                .ok_or_else(|| StoreError::NotFound(name))?;
+                            s.copy_messages(
+                                mb,
+                                dest.id,
+                                &targets.into_iter().map(|(_, u)| u).collect::<Vec<_>>(),
+                            )
+                        })
+                        .await,
+                        "COPY completed",
+                    )
+                } else {
+                    Reply::bad("Invalid message sequence number")
+                }
             }
-            CommandBody::Fetch { sequence_set, macro_or_item_names, uid } => {
-                super::fetch::fetch(self, &sequence_set, macro_or_item_names, uid).await?
-            }
-            CommandBody::Store { sequence_set, kind, response, flags, uid } => {
-                super::fetch::store(self, &sequence_set, kind, response, &flags, uid).await?
-            }
-            CommandBody::Search { charset, criteria, uid } => super::search::search(self, charset.as_ref(), &criteria, uid).await?,
+            CommandBody::Fetch {
+                sequence_set,
+                macro_or_item_names,
+                uid,
+            } => super::fetch::fetch(self, &sequence_set, macro_or_item_names, uid).await?,
+            CommandBody::Store {
+                sequence_set,
+                kind,
+                response,
+                flags,
+                uid,
+            } => super::fetch::store(self, &sequence_set, kind, response, &flags, uid).await?,
+            CommandBody::Search {
+                charset,
+                criteria,
+                uid,
+            } => super::search::search(self, charset.as_ref(), &criteria, uid).await?,
 
             // IDLE, UNSELECT, ENABLE, MOVE, COMPRESS, QUOTA...: not offered (IMAP4rev1 only).
             _ => return self.syntax_error(&tag, "Command not supported").await,
@@ -452,7 +623,8 @@ impl Session {
             Status::No => "NO",
             Status::Bad => "BAD",
         };
-        self.send(format!("{tag} {status} {}\r\n", reply.text).as_bytes()).await?;
+        self.send(format!("{tag} {status} {}\r\n", reply.text).as_bytes())
+            .await?;
         if reply.status == Status::Bad && !authed {
             return self.count_bad().await;
         }
@@ -460,14 +632,22 @@ impl Session {
     }
 
     async fn syntax_error(&mut self, tag: &str, text: &str) -> io::Result<Flow> {
-        self.send(format!("{tag} BAD {text}\r\n").as_bytes()).await?;
-        if matches!(self.state, State::NotAuth) { self.count_bad().await } else { Ok(Flow::Continue) }
+        self.send(format!("{tag} BAD {text}\r\n").as_bytes())
+            .await?;
+        if matches!(self.state, State::NotAuth) {
+            self.count_bad().await
+        } else {
+            Ok(Flow::Continue)
+        }
     }
 
     async fn count_bad(&mut self) -> io::Result<Flow> {
         self.bad_count += 1;
         if self.bad_count >= self.config.max_bad_before_login {
-            crate::log_info!("imap: closing connection from {}: too many invalid commands before login", self.peer.ip());
+            crate::log_info!(
+                "imap: closing connection from {}: too many invalid commands before login",
+                self.peer.ip()
+            );
             self.send(b"* BYE Too many invalid commands\r\n").await?;
             return Ok(Flow::Close);
         }
@@ -475,9 +655,14 @@ impl Session {
     }
 
     /// Run a store call off the async thread.
-    pub(crate) async fn blocking<T: Send + 'static>(&self, f: impl FnOnce(&Store) -> Result<T, StoreError> + Send + 'static) -> Result<T, StoreError> {
+    pub(crate) async fn blocking<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Store) -> Result<T, StoreError> + Send + 'static,
+    ) -> Result<T, StoreError> {
         let store = self.store.clone();
-        tokio::task::spawn_blocking(move || f(&store)).await.unwrap_or_else(|e| Err(StoreError::Io(io::Error::other(e.to_string()))))
+        tokio::task::spawn_blocking(move || f(&store))
+            .await
+            .unwrap_or_else(|e| Err(StoreError::Io(io::Error::other(e.to_string()))))
     }
 
     fn account(&self) -> Option<AccountId> {
@@ -494,7 +679,9 @@ impl Session {
     /// false: fail after the verify (foreign authzid), so timing does not tell the cases apart.
     async fn login(&mut self, login: String, password: String, allowed: bool) -> Reply {
         let who = login.clone();
-        let r = self.blocking(move |s| s.authenticate(&login, &password)).await;
+        let r = self
+            .blocking(move |s| s.authenticate(&login, &password))
+            .await;
         match r {
             Ok(Some(id)) if allowed => {
                 crate::log_info!("imap: {who} logged in from {}", self.peer.ip());
@@ -518,8 +705,14 @@ impl Session {
     async fn authenticate_plain(&mut self) -> io::Result<Option<Reply>> {
         self.send(b"+ \r\n").await?;
         self.io.flush().await?;
-        let Some(line) = self.read_continuation().await? else { return Ok(None) };
-        if line.strip_suffix(b"\n").map(|l| l.strip_suffix(b"\r").unwrap_or(l)) == Some(b"*") {
+        let Some(line) = self.read_continuation().await? else {
+            return Ok(None);
+        };
+        if line
+            .strip_suffix(b"\n")
+            .map(|l| l.strip_suffix(b"\r").unwrap_or(l))
+            == Some(b"*")
+        {
             return Ok(Some(Reply::bad("AUTHENTICATE cancelled")));
         }
         let data = match AuthenticateDataCodec::default().decode(&line) {
@@ -527,7 +720,9 @@ impl Session {
             _ => return Ok(Some(Reply::bad("Invalid base64 response"))),
         };
         let mut parts = data.split(|&b| b == 0);
-        let (Some(authzid), Some(authcid), Some(pw), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
+        let (Some(authzid), Some(authcid), Some(pw), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
             return Ok(Some(Reply::bad("Invalid PLAIN response")));
         };
         let allowed = authzid.is_empty() || authzid == authcid;
@@ -539,14 +734,22 @@ impl Session {
     // ---- mailboxes -------------------------------------------------------------------------
 
     async fn select(&mut self, mailbox: &Mailbox<'_>, read_only: bool) -> io::Result<Reply> {
-        let Some(account) = self.account() else { return Ok(Reply::no("Log in first")) };
+        let Some(account) = self.account() else {
+            return Ok(Reply::no("Log in first"));
+        };
         // A failed SELECT leaves the selected state too (RFC 3501 6.3.1).
         self.state = State::Auth(account);
         let name = mailbox_name(mailbox);
         let r = self
             .blocking(move |s| {
-                let Some(mb) = s.find_mailbox(account, &name)? else { return Ok(None) };
-                let claim = if read_only { None } else { Some(s.claim_recent(mb.id)?) };
+                let Some(mb) = s.find_mailbox(account, &name)? else {
+                    return Ok(None);
+                };
+                let claim = if read_only {
+                    None
+                } else {
+                    Some(s.claim_recent(mb.id)?)
+                };
                 let info = s.mailbox(mb.id)?;
                 let msgs = s.messages(mb.id)?;
                 Ok(Some((info, msgs, claim)))
@@ -571,16 +774,27 @@ impl Session {
             uids: msgs.iter().map(|m| m.uid).collect(),
             recent,
             uidnext: info.uidnext,
-            modseq:info.highest_modseq,
+            modseq: info.highest_modseq,
         };
         let mut out = Vec::with_capacity(512);
         out.extend_from_slice(b"* FLAGS (\\Answered \\Flagged \\Seen \\Draft \\Deleted)\r\n");
-        out.extend_from_slice(format!("* {} EXISTS\r\n* {} RECENT\r\n", sel.uids.len(), sel.recent_count()).as_bytes());
+        out.extend_from_slice(
+            format!(
+                "* {} EXISTS\r\n* {} RECENT\r\n",
+                sel.uids.len(),
+                sel.recent_count()
+            )
+            .as_bytes(),
+        );
         if let Some(i) = msgs.iter().position(|m| !m.flags.contains(Flags::SEEN)) {
             out.extend_from_slice(format!("* OK [UNSEEN {}] First unseen\r\n", i + 1).as_bytes());
         }
-        out.extend_from_slice(format!("* OK [UIDVALIDITY {}] UIDs valid\r\n", info.uidvalidity).as_bytes());
-        out.extend_from_slice(format!("* OK [UIDNEXT {}] Predicted next UID\r\n", info.uidnext).as_bytes());
+        out.extend_from_slice(
+            format!("* OK [UIDVALIDITY {}] UIDs valid\r\n", info.uidvalidity).as_bytes(),
+        );
+        out.extend_from_slice(
+            format!("* OK [UIDNEXT {}] Predicted next UID\r\n", info.uidnext).as_bytes(),
+        );
         if read_only {
             out.extend_from_slice(b"* OK [PERMANENTFLAGS ()] Read-only mailbox\r\n");
         } else {
@@ -588,11 +802,17 @@ impl Session {
         }
         self.send(&out).await?;
         self.state = State::Selected(sel);
-        Ok(if read_only { Reply::ok("[READ-ONLY] EXAMINE completed") } else { Reply::ok("[READ-WRITE] SELECT completed") })
+        Ok(if read_only {
+            Reply::ok("[READ-ONLY] EXAMINE completed")
+        } else {
+            Reply::ok("[READ-WRITE] SELECT completed")
+        })
     }
 
     async fn subscribe(&mut self, mailbox: &Mailbox<'_>, on: bool) -> Reply {
-        let Some(account) = self.account() else { return Reply::no("Log in first") };
+        let Some(account) = self.account() else {
+            return Reply::no("Log in first");
+        };
         let name = mailbox_name(mailbox);
         let r = self
             .blocking(move |s| match s.find_mailbox(account, &name)? {
@@ -611,8 +831,15 @@ impl Session {
         }
     }
 
-    async fn list(&mut self, reference: &Mailbox<'_>, pattern: &ListMailbox<'_>, lsub: bool) -> io::Result<Reply> {
-        let Some(account) = self.account() else { return Ok(Reply::no("Log in first")) };
+    async fn list(
+        &mut self,
+        reference: &Mailbox<'_>,
+        pattern: &ListMailbox<'_>,
+        lsub: bool,
+    ) -> io::Result<Reply> {
+        let Some(account) = self.account() else {
+            return Ok(Reply::no("Log in first"));
+        };
         let what = if lsub { "LSUB" } else { "LIST" };
         let pattern: &[u8] = match pattern {
             ListMailbox::Token(t) => t.as_ref(),
@@ -653,8 +880,14 @@ impl Session {
         Ok(Reply::ok(format!("{what} completed")))
     }
 
-    async fn status(&mut self, mailbox: &Mailbox<'_>, items: &[StatusDataItemName]) -> io::Result<Reply> {
-        let Some(account) = self.account() else { return Ok(Reply::no("Log in first")) };
+    async fn status(
+        &mut self,
+        mailbox: &Mailbox<'_>,
+        items: &[StatusDataItemName],
+    ) -> io::Result<Reply> {
+        let Some(account) = self.account() else {
+            return Ok(Reply::no("Log in first"));
+        };
         if items.iter().any(|i| {
             !matches!(
                 i,
@@ -670,7 +903,9 @@ impl Session {
         let name = mailbox_name(mailbox);
         let r = self
             .blocking(move |s| {
-                let Some(mb) = s.find_mailbox(account, &name)? else { return Ok(None) };
+                let Some(mb) = s.find_mailbox(account, &name)? else {
+                    return Ok(None);
+                };
                 let msgs = s.messages(mb.id)?;
                 Ok(Some((mb, msgs)))
             })
@@ -687,10 +922,18 @@ impl Session {
         for i in items {
             vals.push(match i {
                 StatusDataItemName::Messages => format!("MESSAGES {}", msgs.len()),
-                StatusDataItemName::Recent => format!("RECENT {}", msgs.iter().filter(|m| m.uid > mb.recent_uid).count()),
+                StatusDataItemName::Recent => format!(
+                    "RECENT {}",
+                    msgs.iter().filter(|m| m.uid > mb.recent_uid).count()
+                ),
                 StatusDataItemName::UidNext => format!("UIDNEXT {}", mb.uidnext),
                 StatusDataItemName::UidValidity => format!("UIDVALIDITY {}", mb.uidvalidity),
-                _ => format!("UNSEEN {}", msgs.iter().filter(|m| !m.flags.contains(Flags::SEEN)).count()),
+                _ => format!(
+                    "UNSEEN {}",
+                    msgs.iter()
+                        .filter(|m| !m.flags.contains(Flags::SEEN))
+                        .count()
+                ),
             });
         }
         let mut out = b"* STATUS ".to_vec();
@@ -701,21 +944,32 @@ impl Session {
     }
 
     /// New deliveries since the uid list was built: `* n EXISTS` and `* r RECENT`, once each.
-    pub(crate) async fn report_new_mail(&mut self,allow_expunge:bool) -> io::Result<()> {
-        let State::Selected(sel) = &self.state else { return Ok(()) };
-        let (id, read_only, known,modseq) = (sel.mailbox, sel.read_only, sel.uidnext,sel.modseq);
+    pub(crate) async fn report_new_mail(&mut self, allow_expunge: bool) -> io::Result<()> {
+        let State::Selected(sel) = &self.state else {
+            return Ok(());
+        };
+        let (id, read_only, known, modseq) = (sel.mailbox, sel.read_only, sel.uidnext, sel.modseq);
         let r = self
             .blocking(move |s| {
                 let info = s.mailbox(id)?;
-                if info.uidnext == known && info.highest_modseq==modseq {
+                if info.uidnext == known && info.highest_modseq == modseq {
                     return Ok(None);
                 }
-                let claim = if read_only { None } else { Some(s.claim_recent(id)?) };
+                let claim = if read_only {
+                    None
+                } else {
+                    Some(s.claim_recent(id)?)
+                };
                 let msgs = s.messages(id)?;
-                Ok(Some((info.uidnext,info.highest_modseq, msgs.into_iter().map(|m| m.uid).collect::<Vec<u32>>(), claim)))
+                Ok(Some((
+                    info.uidnext,
+                    info.highest_modseq,
+                    msgs.into_iter().map(|m| m.uid).collect::<Vec<u32>>(),
+                    claim,
+                )))
             })
             .await;
-        let (uidnext,new_modseq, uids, claim) = match r {
+        let (uidnext, new_modseq, uids, claim) = match r {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(()),
             Err(e) => {
@@ -723,17 +977,39 @@ impl Session {
                 return Ok(());
             }
         };
-        let State::Selected(sel) = &mut self.state else { return Ok(()) };
-        let mut line=String::new();
-        if let Some(c)=claim && c.upto>c.floor {sel.recent.push((c.floor,c.upto));}
-        if !allow_expunge && sel.uids.iter().any(|u|uids.binary_search(u).is_err()){return Ok(());}
-        let mut seq=0;
-        sel.uids.retain(|u|{
-            if uids.binary_search(u).is_ok(){seq+=1;true}else{line.push_str(&format!("* {} EXPUNGE\r\n",seq+1));false}
+        let State::Selected(sel) = &mut self.state else {
+            return Ok(());
+        };
+        let mut line = String::new();
+        if let Some(c) = claim
+            && c.upto > c.floor
+        {
+            sel.recent.push((c.floor, c.upto));
+        }
+        if !allow_expunge && sel.uids.iter().any(|u| uids.binary_search(u).is_err()) {
+            return Ok(());
+        }
+        let mut seq = 0;
+        sel.uids.retain(|u| {
+            if uids.binary_search(u).is_ok() {
+                seq += 1;
+                true
+            } else {
+                line.push_str(&format!("* {} EXPUNGE\r\n", seq + 1));
+                false
+            }
         });
-        let changed=sel.uids.len()!=uids.len();
-        sel.uidnext=uidnext;sel.modseq=new_modseq;sel.uids=uids;
-        if changed {line.push_str(&format!("* {} EXISTS\r\n* {} RECENT\r\n",sel.uids.len(),sel.recent_count()));}
+        let changed = sel.uids.len() != uids.len();
+        sel.uidnext = uidnext;
+        sel.modseq = new_modseq;
+        sel.uids = uids;
+        if changed {
+            line.push_str(&format!(
+                "* {} EXISTS\r\n* {} RECENT\r\n",
+                sel.uids.len(),
+                sel.recent_count()
+            ));
+        }
         self.send(line.as_bytes()).await
     }
 }
@@ -749,7 +1025,10 @@ fn mailbox_name(m: &Mailbox<'_>) -> String {
 /// Tag of a raw command for a BAD response: the bytes before the first space if they make a valid
 /// tag, else `*`.
 fn tag_of(msg: &[u8]) -> String {
-    let end = msg.iter().position(|&b| b == b' ' || b == b'\r' || b == b'\n').unwrap_or(msg.len());
+    let end = msg
+        .iter()
+        .position(|&b| b == b' ' || b == b'\r' || b == b'\n')
+        .unwrap_or(msg.len());
     match Tag::try_from(&msg[..end]) {
         Ok(t) => t.as_ref().to_string(),
         Err(_) => "*".to_string(),
@@ -759,7 +1038,9 @@ fn tag_of(msg: &[u8]) -> String {
 /// The command word of a raw command is APPEND (`tag SP "APPEND" SP ...`, any case).
 fn is_append(msg: &[u8]) -> bool {
     let mut words = msg.splitn(3, |&b| b == b' ');
-    let (Some(_tag), Some(cmd)) = (words.next(), words.next()) else { return false };
+    let (Some(_tag), Some(cmd)) = (words.next(), words.next()) else {
+        return false;
+    };
     cmd.eq_ignore_ascii_case(b"APPEND")
 }
 
@@ -798,6 +1079,18 @@ fn glob(pattern: &[u8], name: &[u8]) -> bool {
     }
 }
 
+fn write_reply(result: Result<(), StoreError>, success: &'static str) -> Reply {
+    match result {
+        Ok(()) => Reply::ok(success),
+        Err(StoreError::NotFound(_)) => Reply::no("[TRYCREATE] No such mailbox"),
+        Err(StoreError::QuotaExceeded) => Reply::no("[OVERQUOTA] Mailbox storage limit reached"),
+        Err(e) => {
+            crate::log_error!("imap write: {e}");
+            Reply::internal()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -821,7 +1114,10 @@ mod tests {
         assert_eq!(literal_announcement(b"A LOGIN {5+}\r\n"), Some(Err(())));
         assert_eq!(literal_announcement(b"A LOGIN \"{5}\"\r\n"), None);
         assert_eq!(literal_announcement(b"A LOGIN {}\r\n"), None);
-        assert_eq!(literal_announcement(b"A X {9999999999}\r\n"), Some(Ok(9_999_999_999)));
+        assert_eq!(
+            literal_announcement(b"A X {9999999999}\r\n"),
+            Some(Ok(9_999_999_999))
+        );
         assert_eq!(literal_announcement(b"A X {99999999999}\r\n"), None);
     }
 
@@ -839,9 +1135,4 @@ mod tests {
         assert_eq!(tag_of(b"A+1 FOO\r\n"), "*");
         assert_eq!(tag_of(b"\r\n"), "*");
     }
-}
-
-fn write_reply(result:Result<(),StoreError>,success:&'static str)->Reply {
-    match result {Ok(())=>Reply::ok(success),Err(StoreError::NotFound(_))=>Reply::no("[TRYCREATE] No such mailbox"),
-        Err(StoreError::QuotaExceeded)=>Reply::no("[OVERQUOTA] Mailbox storage limit reached"),Err(e)=>{crate::log_error!("imap write: {e}");Reply::internal()}}
 }

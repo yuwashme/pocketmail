@@ -38,13 +38,21 @@ async fn env(limit: Option<Duration>) -> Env {
     if let Some(c) = &clock {
         poller = poller.with_clock(c.clone());
     }
-    Env { tmp, store, fake, clock, poller: Some(poller) }
+    Env {
+        tmp,
+        store,
+        fake,
+        clock,
+        poller: Some(poller),
+    }
 }
 
 impl Env {
     async fn poll(&mut self) -> Result<PassReport, ApiError> {
         let p = self.poller.as_mut().unwrap();
-        tokio::time::timeout(Duration::from_secs(30), p.poll_once()).await.expect("poll_once must finish")
+        tokio::time::timeout(Duration::from_secs(30), p.poll_once())
+            .await
+            .expect("poll_once must finish")
     }
 
     /// Run the poll loop until the simulated clock reaches its limit.
@@ -75,7 +83,12 @@ impl Env {
 
     fn deletes(&self, k: &str) -> Vec<Duration> {
         let p = Env::msg_path(k);
-        self.fake.requests().into_iter().filter(|r| r.method == "DELETE" && r.path == p).map(|r| r.at).collect()
+        self.fake
+            .requests()
+            .into_iter()
+            .filter(|r| r.method == "DELETE" && r.path == p)
+            .map(|r| r.at)
+            .collect()
     }
 
     fn tmp_files(&self) -> Vec<std::path::PathBuf> {
@@ -92,34 +105,60 @@ fn gaps(times: &[Duration]) -> Vec<Duration> {
     times.windows(2).map(|w| w[1] - w[0]).collect()
 }
 
-// ---------------------------------------------------------------------------------------------
-// One pass (poll_once)
+// // One pass (poll_once)
 
 #[tokio::test]
 async fn happy_path_delivers_inbox_uid_1_then_deletes() {
     let mut e = env(None).await;
     e.fake.put(&key(1), FROM, "test@example.com", BODY);
     let r = e.poll().await.unwrap();
-    assert_eq!(r, PassReport { lists: 1, delivered: 1, deleted: 1, ..Default::default() });
+    assert_eq!(
+        r,
+        PassReport {
+            lists: 1,
+            delivered: 1,
+            deleted: 1,
+            ..Default::default()
+        }
+    );
 
     let mb = e.inbox();
     let msgs = e.store.messages(mb).unwrap();
     assert_eq!(msgs.len(), 1);
     assert_eq!(msgs[0].uid, 1);
     let expected = [format!("Return-Path: <{FROM}>\r\n").as_bytes(), BODY].concat();
-    assert_eq!(read_message(&e.store, mb, 1), expected, "Return-Path prepended, body byte-exact");
-    let file_len = std::fs::metadata(data_dir(&e.tmp).join(&msgs[0].blob)).unwrap().len();
+    assert_eq!(
+        read_message(&e.store, mb, 1),
+        expected,
+        "Return-Path prepended, body byte-exact"
+    );
+    let file_len = std::fs::metadata(data_dir(&e.tmp).join(&msgs[0].blob))
+        .unwrap()
+        .len();
     assert_eq!(msgs[0].size, file_len, "RFC822.SIZE = blob file length");
     assert_eq!(msgs[0].size, expected.len() as u64);
-    assert_eq!(msgs[0].internal_date, (MS + 1) / 1000, "INTERNALDATE from the key's ms");
+    assert_eq!(
+        msgs[0].internal_date,
+        (MS + 1) / 1000,
+        "INTERNALDATE from the key's ms"
+    );
     assert!(e.store.is_delivered(&key(1)).unwrap());
 
     assert!(e.fake.keys().is_empty(), "acked");
-    let order: Vec<(String, String)> = e.fake.requests().into_iter().map(|r| (r.method, r.path)).collect();
+    let order: Vec<(String, String)> = e
+        .fake
+        .requests()
+        .into_iter()
+        .map(|r| (r.method, r.path))
+        .collect();
     let k = Env::msg_path(&key(1));
     assert_eq!(
         order,
-        vec![("GET".into(), "/messages".into()), ("GET".into(), k.clone()), ("DELETE".into(), k)],
+        vec![
+            ("GET".into(), "/messages".into()),
+            ("GET".into(), k.clone()),
+            ("DELETE".into(), k)
+        ],
         "list, fetch, then DELETE only after delivery"
     );
     assert!(e.tmp_files().is_empty(), "download removed after delivery");
@@ -135,7 +174,10 @@ async fn body_is_stored_byte_exact_across_many_tls_records() {
     assert_eq!(e.poll().await.unwrap().delivered, 1);
     let stored = read_message(&e.store, e.inbox(), 1);
     assert!(stored.ends_with(&body));
-    assert_eq!(stored.len(), body.len() + format!("Return-Path: <{FROM}>\r\n").len());
+    assert_eq!(
+        stored.len(),
+        body.len() + format!("Return-Path: <{FROM}>\r\n").len()
+    );
 }
 
 #[tokio::test]
@@ -145,14 +187,21 @@ async fn commit_failure_means_no_delete_and_a_clean_retry() {
     e.store.set_failpoint(Some(Failpoint::BeforeCommit));
     let r = e.poll().await.unwrap();
     assert_eq!((r.delivered, r.failed, r.deleted), (0, 1, 0));
-    assert!(e.deletes(&key(1)).is_empty(), "no DELETE without a committed copy");
+    assert!(
+        e.deletes(&key(1)).is_empty(),
+        "no DELETE without a committed copy"
+    );
     assert_eq!(e.fake.keys(), vec![key(1)]);
     assert!(e.store.messages(e.inbox()).unwrap().is_empty());
     assert!(!e.store.is_delivered(&key(1)).unwrap());
 
     let r = e.poll().await.unwrap();
     assert_eq!((r.delivered, r.deleted), (1, 1));
-    assert_eq!(e.store.messages(e.inbox()).unwrap().len(), 1, "exactly one copy");
+    assert_eq!(
+        e.store.messages(e.inbox()).unwrap().len(),
+        1,
+        "exactly one copy"
+    );
     assert!(e.fake.keys().is_empty());
 }
 
@@ -166,7 +215,11 @@ async fn a_delivered_key_listed_again_is_not_fetched_again() {
     assert_eq!((r.already_delivered, r.delivered, r.deleted), (1, 0, 1));
     assert_eq!(e.gets(&key(1)), 0, "never fetched again");
     assert_eq!(e.deletes(&key(1)).len(), 1);
-    assert_eq!(e.store.messages(e.inbox()).unwrap().len(), 1, "no second copy");
+    assert_eq!(
+        e.store.messages(e.inbox()).unwrap().len(),
+        1,
+        "no second copy"
+    );
 }
 
 #[tokio::test]
@@ -177,9 +230,19 @@ async fn incomplete_lists_are_drained_at_once() {
     }
     e.fake.with(|s| s.page_size = Some(2));
     let r = e.poll().await.unwrap();
-    assert_eq!((r.lists, r.delivered, r.deleted), (3, 5, 5), "pages of 2, 2, 1 in one pass");
+    assert_eq!(
+        (r.lists, r.delivered, r.deleted),
+        (3, 5, 5),
+        "pages of 2, 2, 1 in one pass"
+    );
     assert!(e.fake.keys().is_empty());
-    let uids: Vec<u32> = e.store.messages(e.inbox()).unwrap().iter().map(|m| m.uid).collect();
+    let uids: Vec<u32> = e
+        .store
+        .messages(e.inbox())
+        .unwrap()
+        .iter()
+        .map(|m| m.uid)
+        .collect();
     assert_eq!(uids, vec![1, 2, 3, 4, 5]);
 }
 
@@ -208,9 +271,15 @@ async fn unknown_recipient_is_quarantined_recorded_and_acked() {
     let q = files_in(&data_dir(&e.tmp).join("unrouted"));
     assert_eq!(q.len(), 1);
     assert!(std::fs::read(&q[0]).unwrap().ends_with(BODY));
-    assert!(e.store.is_delivered(&key(1)).unwrap(), "recorded in handoff");
+    assert!(
+        e.store.is_delivered(&key(1)).unwrap(),
+        "recorded in handoff"
+    );
     assert!(e.store.messages(e.inbox()).unwrap().is_empty());
-    assert!(e.fake.keys().is_empty(), "acked: nothing is lost, it sits in unrouted/");
+    assert!(
+        e.fake.keys().is_empty(),
+        "acked: nothing is lost, it sits in unrouted/"
+    );
 }
 
 #[tokio::test]
@@ -229,25 +298,48 @@ async fn v0_messages_without_an_envelope_are_quarantined_not_lost() {
 async fn uids_ascend_in_key_order_with_internaldate_from_each_key() {
     let mut e = env(None).await;
     let times = [MS, MS + 61_000, MS + 3_600_000];
-    let keys: Vec<String> = times.iter().enumerate().map(|(i, ms)| key_at(*ms, i as i64)).collect();
+    let keys: Vec<String> = times
+        .iter()
+        .enumerate()
+        .map(|(i, ms)| key_at(*ms, i as i64))
+        .collect();
     for (i, k) in keys.iter().enumerate() {
-        e.fake.put(k, FROM, "test@example.com", format!("Subject: {i}\r\n\r\n{i}\r\n").as_bytes());
+        e.fake.put(
+            k,
+            FROM,
+            "test@example.com",
+            format!("Subject: {i}\r\n\r\n{i}\r\n").as_bytes(),
+        );
     }
     e.fake.with(|s| s.reverse_list = true); // newest first: the poller must order by key itself
     assert_eq!(e.poll().await.unwrap().delivered, 3);
     let msgs = e.store.messages(e.inbox()).unwrap();
     for (i, m) in msgs.iter().enumerate() {
         assert_eq!(m.uid, i as u32 + 1);
-        assert_eq!(m.internal_date, times[i] / 1000, "uid {} INTERNALDATE", m.uid);
-        assert!(read_message(&e.store, e.inbox(), m.uid).ends_with(format!("\r\n\r\n{i}\r\n").as_bytes()));
+        assert_eq!(
+            m.internal_date,
+            times[i] / 1000,
+            "uid {} INTERNALDATE",
+            m.uid
+        );
+        assert!(
+            read_message(&e.store, e.inbox(), m.uid)
+                .ends_with(format!("\r\n\r\n{i}\r\n").as_bytes())
+        );
     }
 }
 
 #[tokio::test]
 async fn tagged_uppercase_and_utf8_envelopes_route_to_the_inbox() {
     let mut e = env(None).await;
-    e.store.add_address("\u{161}ef@example.com", "test@example.com").unwrap();
-    for (n, rcpt) in [(1, "test+news@example.com"), (2, "TEST@EXAMPLE.COM"), (3, "\u{160}ef@example.com")] {
+    e.store
+        .add_address("\u{161}ef@example.com", "test@example.com")
+        .unwrap();
+    for (n, rcpt) in [
+        (1, "test+news@example.com"),
+        (2, "TEST@EXAMPLE.COM"),
+        (3, "\u{160}ef@example.com"),
+    ] {
         e.fake.put(&key(n), FROM, rcpt, BODY);
     }
     let r = e.poll().await.unwrap();
@@ -259,14 +351,16 @@ async fn tagged_uppercase_and_utf8_envelopes_route_to_the_inbox() {
 async fn size_mismatch_is_not_delivered_or_acked_and_leaves_no_tmp_file() {
     let mut e = env(None).await;
     e.fake.put(&key(1), FROM, "test@example.com", BODY);
-    e.fake.with(|s| s.kv.get_mut(&key(1)).unwrap().size_header = Some((BODY.len() + 7).to_string()));
+    e.fake
+        .with(|s| s.kv.get_mut(&key(1)).unwrap().size_header = Some((BODY.len() + 7).to_string()));
     let r = e.poll().await.unwrap();
     assert_eq!((r.failed, r.delivered, r.deleted), (1, 0, 0));
     assert!(e.deletes(&key(1)).is_empty());
     assert!(e.tmp_files().is_empty());
     assert!(!e.store.is_delivered(&key(1)).unwrap());
     // Fixed on the Worker side: the next pass delivers it.
-    e.fake.with(|s| s.kv.get_mut(&key(1)).unwrap().size_header = None);
+    e.fake
+        .with(|s| s.kv.get_mut(&key(1)).unwrap().size_header = None);
     assert_eq!(e.poll().await.unwrap().delivered, 1);
 }
 
@@ -279,8 +373,15 @@ async fn gone_and_malformed_keys_are_counted_and_not_deleted() {
     e.fake.with(|s| s.get_status.insert(key(1), 404)); // acked meanwhile / expired
     let r = e.poll().await.unwrap();
     assert_eq!((r.gone, r.skipped, r.delivered), (1, 1, 1));
-    assert_eq!(e.gets("msg:garbage"), 0, "a key without a 13-digit time is not fetched");
-    assert!(e.deletes("msg:garbage").is_empty(), "nor deleted: nothing is destroyed, KV's TTL removes it");
+    assert_eq!(
+        e.gets("msg:garbage"),
+        0,
+        "a key without a 13-digit time is not fetched"
+    );
+    assert!(
+        e.deletes("msg:garbage").is_empty(),
+        "nor deleted: nothing is destroyed, KV's TTL removes it"
+    );
     assert!(!e.store.is_delivered(&key(1)).unwrap());
 }
 
@@ -299,8 +400,7 @@ async fn list_failures_are_errors_of_the_pass() {
     assert_eq!(e.gets(&key(1)), 0);
 }
 
-// ---------------------------------------------------------------------------------------------
-// The loop (run) on a simulated clock
+// // The loop (run) on a simulated clock
 
 #[test]
 fn backoff_delay_doubles_from_the_interval_up_to_30_minutes() {
@@ -320,9 +420,20 @@ async fn quota_guard_at_most_720_lists_in_24_hours() {
     let mut e = env(Some(hours(24))).await;
     e.run().await;
     let lists = e.fake.lists();
-    assert!(lists.len() <= 720, "{} lists in 24 h (KV free tier: 1,000 a day)", lists.len());
-    assert!(lists.len() >= 700, "it must keep polling: {} lists", lists.len());
-    assert!(gaps(&lists).iter().all(|g| *g >= INTERVAL), "never faster than every 120 s");
+    assert!(
+        lists.len() <= 720,
+        "{} lists in 24 h (KV free tier: 1,000 a day)",
+        lists.len()
+    );
+    assert!(
+        lists.len() >= 700,
+        "it must keep polling: {} lists",
+        lists.len()
+    );
+    assert!(
+        gaps(&lists).iter().all(|g| *g >= INTERVAL),
+        "never faster than every 120 s"
+    );
 }
 
 #[tokio::test]
@@ -334,10 +445,20 @@ async fn unauthorized_backs_off_to_30_minutes_then_recovers() {
     let (failing, ok): (Vec<Duration>, Vec<Duration>) = lists.iter().partition(|t| **t < hours(3));
     let g = gaps(&failing);
     assert!(g[0] > INTERVAL, "backs off after the first 401: {g:?}");
-    assert!(g.windows(2).all(|w| w[1] >= w[0]), "never shorter again while failing: {g:?}");
-    assert!(g.iter().all(|d| *d <= MAX_BACKOFF), "capped at 30 min: {g:?}");
+    assert!(
+        g.windows(2).all(|w| w[1] >= w[0]),
+        "never shorter again while failing: {g:?}"
+    );
+    assert!(
+        g.iter().all(|d| *d <= MAX_BACKOFF),
+        "capped at 30 min: {g:?}"
+    );
     assert_eq!(*g.last().unwrap(), MAX_BACKOFF, "reaches the cap: {g:?}");
-    assert!(failing.len() <= 12, "{} lists in 3 h of 401s", failing.len());
+    assert!(
+        failing.len() <= 12,
+        "{} lists in 3 h of 401s",
+        failing.len()
+    );
     // First list after the token works again is at most 30 min late; then back to every 120 s.
     assert!(ok[0] - *failing.last().unwrap() <= MAX_BACKOFF);
     assert!(gaps(&ok).iter().all(|d| *d == INTERVAL), "{:?}", gaps(&ok));
@@ -350,7 +471,11 @@ async fn server_errors_back_off_too() {
     e.fake.with(|s| s.list_status = Some(503));
     e.run().await;
     let lists = e.fake.lists();
-    assert!(lists.len() <= 9, "{} lists in 2 h of 503s (60 without backoff)", lists.len());
+    assert!(
+        lists.len() <= 9,
+        "{} lists in 2 h of 503s (60 without backoff)",
+        lists.len()
+    );
     assert!(lists.len() >= 3);
 }
 
@@ -376,10 +501,18 @@ async fn a_relisted_delivered_key_gets_delete_at_most_once_per_10_minutes() {
     e.fake.with(|s| s.delete_failures.insert(key(1), u32::MAX));
     e.run().await;
     let d = e.deletes(&key(1));
-    assert!((2..=7).contains(&d.len()), "{} DELETEs in 1 h (30 passes): {d:?}", d.len());
+    assert!(
+        (2..=7).contains(&d.len()),
+        "{} DELETEs in 1 h (30 passes): {d:?}",
+        d.len()
+    );
     assert!(gaps(&d).iter().all(|g| *g >= REDELETE_INTERVAL), "{d:?}");
     assert_eq!(e.gets(&key(1)), 1);
-    assert_eq!(e.store.messages(e.inbox()).unwrap().len(), 1, "never a second copy");
+    assert_eq!(
+        e.store.messages(e.inbox()).unwrap().len(),
+        1,
+        "never a second copy"
+    );
 }
 
 #[tokio::test]
@@ -410,7 +543,12 @@ async fn mail_arriving_between_passes_is_picked_up_on_the_next_pass() {
                 let mut s = fake_state.lock().unwrap();
                 s.kv.insert(
                     key(2),
-                    StoredMsg { body: BODY.to_vec(), from: Some(FROM.into()), to: Some("test@example.com".into()), size_header: None },
+                    StoredMsg {
+                        body: BODY.to_vec(),
+                        from: Some(FROM.into()),
+                        to: Some("test@example.com".into()),
+                        size_header: None,
+                    },
                 );
                 *arrived_w.lock().unwrap() = Some(now);
                 return;
@@ -420,9 +558,27 @@ async fn mail_arriving_between_passes_is_picked_up_on_the_next_pass() {
     });
     e.run().await;
     watcher.abort();
-    let arrived = arrived.lock().unwrap().expect("the watcher ran before the limit");
-    let uids: Vec<u32> = e.store.messages(e.inbox()).unwrap().iter().map(|m| m.uid).collect();
+    let arrived = arrived
+        .lock()
+        .unwrap()
+        .expect("the watcher ran before the limit");
+    let uids: Vec<u32> = e
+        .store
+        .messages(e.inbox())
+        .unwrap()
+        .iter()
+        .map(|m| m.uid)
+        .collect();
     assert_eq!(uids, vec![1, 2]);
-    let t2 = e.fake.requests().into_iter().find(|r| r.method == "GET" && r.path == Env::msg_path(&key(2))).unwrap().at;
-    assert!(t2 >= arrived && t2 - arrived <= INTERVAL, "fetched on the first pass after arrival ({arrived:?}): {t2:?}");
+    let t2 = e
+        .fake
+        .requests()
+        .into_iter()
+        .find(|r| r.method == "GET" && r.path == Env::msg_path(&key(2)))
+        .unwrap()
+        .at;
+    assert!(
+        t2 >= arrived && t2 - arrived <= INTERVAL,
+        "fetched on the first pass after arrival ({arrived:?}): {t2:?}"
+    );
 }

@@ -11,7 +11,10 @@ use tokio::sync::MutexGuard;
 use super::admin::LOGIN_RULES;
 use super::html::{Field, Html};
 use super::http::{Request, Response, decode_form};
-use super::pages::{AUTH_DELAY, App, FORM_REFUSED, locked_message, new_password_problem, same_origin, start_session, value};
+use super::pages::{
+    AUTH_DELAY, App, FORM_REFUSED, locked_message, new_password_problem, same_origin,
+    start_session, value,
+};
 use super::session::{Digest, hex, random, same, sha256};
 use crate::store::{Account, AccountId, Store, StoreError, Verified, check_login};
 
@@ -28,12 +31,19 @@ impl Link {
     /// A new link made at `now`, and its token: 128 random bits as 32 lowercase hex digits.
     pub fn new(now: Duration) -> (Link, String) {
         let token = hex(&random()[..16]);
-        (Link { digest: sha256(token.as_bytes()), created: now }, token)
+        (
+            Link {
+                digest: sha256(token.as_bytes()),
+                created: now,
+            },
+            token,
+        )
     }
 }
 
 fn reread(s: &Store, id: AccountId) -> Result<Account, StoreError> {
-    s.account_by_id(id)?.ok_or_else(|| StoreError::NotFound(format!("account {id:?}")))
+    s.account_by_id(id)?
+        .ok_or_else(|| StoreError::NotFound(format!("account {id:?}")))
 }
 
 type Slot<'a> = MutexGuard<'a, Option<Link>>;
@@ -46,7 +56,9 @@ async fn live<'a>(app: &'a App, token: &str) -> Result<Option<Slot<'a>>, StoreEr
     if !same(&sha256(token.as_bytes()), &link.digest) {
         return Ok(None);
     }
-    if app.clock.now().saturating_sub(link.created) >= VALID || app.blocking(|s| s.has_active_admin()).await? {
+    if app.clock.now().saturating_sub(link.created) >= VALID
+        || app.blocking(|s| s.has_active_admin()).await?
+    {
         *slot = None;
         return Ok(None);
     }
@@ -74,7 +86,9 @@ fn page(status: u16, token: &str, notes: &Notes<'_>) -> Response {
     let body = Html::page("Set up the first admin", None, None, |h| {
         let form = |h: &mut Html, what: &'static str| {
             h.raw("<form method=\"post\" action=\"/setup\"><input type=\"hidden\" name=\"t\" value=\"").text(token);
-            h.raw("\"><input type=\"hidden\" name=\"do\" value=\"").raw(what).raw("\">");
+            h.raw("\"><input type=\"hidden\" name=\"do\" value=\"")
+                .raw(what)
+                .raw("\">");
         };
         h.raw("<p>No account can manage this server yet. This page works once, for an hour from the start of the server.</p>\n");
         h.raw("<h2>Make an existing account admin</h2>\n");
@@ -82,26 +96,72 @@ fn page(status: u16, token: &str, notes: &Notes<'_>) -> Response {
             h.raw("<p class=\"error\">").text(m).raw("</p>\n");
         }
         form(h, "promote");
-        h.field(&Field { name: "login", label: "User name", kind: "text", autocomplete: "username", value: Some(notes.login), error: None });
-        h.field(&Field { name: "password", label: "Its password", kind: "password", autocomplete: "current-password", value: None, error: None });
-        h.raw("<button type=\"submit\">Make admin</button></form>\n<h2>Or create a new admin</h2>\n");
+        h.field(&Field {
+            name: "login",
+            label: "User name",
+            kind: "text",
+            autocomplete: "username",
+            value: Some(notes.login),
+            error: None,
+        });
+        h.field(&Field {
+            name: "password",
+            label: "Its password",
+            kind: "password",
+            autocomplete: "current-password",
+            value: None,
+            error: None,
+        });
+        h.raw(
+            "<button type=\"submit\">Make admin</button></form>\n<h2>Or create a new admin</h2>\n",
+        );
         form(h, "create");
         let [login, new, again] = notes.errors;
-        h.field(&Field { name: "new_login", label: "User name", kind: "text", autocomplete: "off", value: Some(notes.new_login), error: login });
-        h.field(&Field { name: "new", label: "Password (at least 12 characters)", kind: "password", autocomplete: "new-password", value: None, error: new });
-        h.field(&Field { name: "again", label: "Password again", kind: "password", autocomplete: "new-password", value: None, error: again });
+        h.field(&Field {
+            name: "new_login",
+            label: "User name",
+            kind: "text",
+            autocomplete: "off",
+            value: Some(notes.new_login),
+            error: login,
+        });
+        h.field(&Field {
+            name: "new",
+            label: "Password (at least 12 characters)",
+            kind: "password",
+            autocomplete: "new-password",
+            value: None,
+            error: new,
+        });
+        h.field(&Field {
+            name: "again",
+            label: "Password again",
+            kind: "password",
+            autocomplete: "new-password",
+            value: None,
+            error: again,
+        });
         h.raw("<button type=\"submit\">Create admin</button></form>\n");
     });
     Response::html(status, body)
 }
 
-pub async fn submit(app: &App, req: &Request, body: &[u8], ip: IpAddr) -> Result<Response, StoreError> {
+pub async fn submit(
+    app: &App,
+    req: &Request,
+    body: &[u8],
+    ip: IpAddr,
+) -> Result<Response, StoreError> {
     if !same_origin(req) {
         return Ok(Response::error_because(403, FORM_REFUSED));
     }
-    let Some(form) = decode_form(body) else { return Ok(Response::error(400)) };
+    let Some(form) = decode_form(body) else {
+        return Ok(Response::error(400));
+    };
     let token = value(&form, "t");
-    let Some(slot) = live(app, token).await? else { return Ok(Response::error_because(404, DEAD)) };
+    let Some(slot) = live(app, token).await? else {
+        return Ok(Response::error_because(404, DEAD));
+    };
     match value(&form, "do") {
         "promote" => promote(app, req, &form, ip, slot).await,
         "create" => create(app, req, &form, ip, slot).await,
@@ -109,9 +169,19 @@ pub async fn submit(app: &App, req: &Request, body: &[u8], ip: IpAddr) -> Result
     }
 }
 
-async fn promote(app: &App, req: &Request, form: &[(String, String)], ip: IpAddr, mut slot: Slot<'_>) -> Result<Response, StoreError> {
+async fn promote(
+    app: &App,
+    req: &Request,
+    form: &[(String, String)],
+    ip: IpAddr,
+    mut slot: Slot<'_>,
+) -> Result<Response, StoreError> {
     let (token, login) = (value(form, "t"), value(form, "login"));
-    let notes = |message: String| Notes { login, message: Some(message), ..Notes::default() };
+    let notes = |message: String| Notes {
+        login,
+        message: Some(message),
+        ..Notes::default()
+    };
     if let Some(left) = app.limiter.locked(ip, login, app.clock.now()) {
         return Ok(page(429, token, &notes(locked_message(left))));
     }
@@ -133,22 +203,45 @@ async fn promote(app: &App, req: &Request, form: &[(String, String)], ip: IpAddr
             Ok(start_session(app, req, &account))
         }
         Verified::Disabled => {
-            crate::log_info!("web: {login:?} refused admin with the setup link from {ip}: account disabled");
-            Ok(page(403, token, &notes("Sign-in is blocked for this account. Create a new admin instead.".into())))
+            crate::log_info!(
+                "web: {login:?} refused admin with the setup link from {ip}: account disabled"
+            );
+            Ok(page(
+                403,
+                token,
+                &notes("Sign-in is blocked for this account. Create a new admin instead.".into()),
+            ))
         }
         Verified::Invalid => {
             drop(slot);
             app.limiter.failed(ip, login, app.clock.now());
             crate::log_info!("web: {login:?} failed sign-in on the setup page from {ip}");
             app.clock.sleep(AUTH_DELAY).await;
-            Ok(page(422, token, &notes("Wrong user name or password.".into())))
+            Ok(page(
+                422,
+                token,
+                &notes("Wrong user name or password.".into()),
+            ))
         }
     }
 }
 
-async fn create(app: &App, req: &Request, form: &[(String, String)], ip: IpAddr, mut slot: Slot<'_>) -> Result<Response, StoreError> {
-    let (token, login, password) = (value(form, "t"), value(form, "new_login"), value(form, "new"));
-    let mut notes = Notes { new_login: login, ..Notes::default() };
+async fn create(
+    app: &App,
+    req: &Request,
+    form: &[(String, String)],
+    ip: IpAddr,
+    mut slot: Slot<'_>,
+) -> Result<Response, StoreError> {
+    let (token, login, password) = (
+        value(form, "t"),
+        value(form, "new_login"),
+        value(form, "new"),
+    );
+    let mut notes = Notes {
+        new_login: login,
+        ..Notes::default()
+    };
     if check_login(login).is_err() {
         notes.errors[0] = Some(LOGIN_RULES);
     }
@@ -173,7 +266,9 @@ async fn create(app: &App, req: &Request, form: &[(String, String)], ip: IpAddr,
             Ok(start_session(app, req, &account))
         }
         Err(StoreError::AlreadyExists(_)) => {
-            notes.errors[0] = Some("An account with this user name already exists. Make it admin with the form above.");
+            notes.errors[0] = Some(
+                "An account with this user name already exists. Make it admin with the form above.",
+            );
             Ok(page(409, token, &notes))
         }
         Err(e) => Err(e),

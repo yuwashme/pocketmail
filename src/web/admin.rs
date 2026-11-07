@@ -16,7 +16,9 @@ const ADDRESS_RULES: &str = "Use name@domain, or @domain for all other mail for 
 type Form = Vec<(String, String)>;
 
 fn param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
-    query.split('&').find_map(|p| p.strip_prefix(name)?.strip_prefix('='))
+    query
+        .split('&')
+        .find_map(|p| p.strip_prefix(name)?.strip_prefix('='))
 }
 
 fn date(unix: i64) -> String {
@@ -29,17 +31,27 @@ fn yes_no(on: bool) -> &'static str {
 }
 
 fn hidden(h: &mut Html, name: &'static str, value: &str) {
-    h.raw("<input type=\"hidden\" name=\"").raw(name).raw("\" value=\"").text(value).raw("\">");
+    h.raw("<input type=\"hidden\" name=\"")
+        .raw(name)
+        .raw("\" value=\"")
+        .text(value)
+        .raw("\">");
 }
 
 /// The account named by an `id` value, if there is one.
 async fn target(app: &App, id: Option<&str>) -> Result<Option<Account>, StoreError> {
-    let Some(id) = id.and_then(|v| v.parse::<i64>().ok()) else { return Ok(None) };
+    let Some(id) = id.and_then(|v| v.parse::<i64>().ok()) else {
+        return Ok(None);
+    };
     app.blocking(move |s| s.account_by_id(AccountId(id))).await
 }
 
 /// An admin's POST about the account in its `id` field. Err: the answer instead.
-async fn action(app: &App, req: &Request, body: &[u8]) -> Result<Result<(Me, Form, Account), Response>, StoreError> {
+async fn action(
+    app: &App,
+    req: &Request,
+    body: &[u8],
+) -> Result<Result<(Me, Form, Account), Response>, StoreError> {
     let (me, form) = match admin_post(app, req, body).await? {
         Ok(ok) => ok,
         Err(r) => return Ok(Err(r)),
@@ -70,8 +82,7 @@ fn done_message(code: &str) -> Option<&'static str> {
     })
 }
 
-// ---- the list and new accounts --------------------------------------------------------------
-
+// the list and new accounts
 #[derive(Default)]
 struct NewAccount<'a> {
     login: &'a str,
@@ -86,13 +97,29 @@ pub async fn list(app: &App, req: &Request) -> Result<Response, StoreError> {
     }
 }
 
-async fn list_page(app: &App, me: &Me, status: u16, new: NewAccount<'_>) -> Result<Response, StoreError> {
-    let (accounts, addresses, settings) = app.blocking(|s| Ok((s.accounts()?, s.addresses()?, s.mailbox_overview()?))).await?;
+async fn list_page(
+    app: &App,
+    me: &Me,
+    status: u16,
+    new: NewAccount<'_>,
+) -> Result<Response, StoreError> {
+    let (accounts, addresses, settings) = app
+        .blocking(|s| Ok((s.accounts()?, s.addresses()?, s.mailbox_overview()?)))
+        .await?;
     let body = Html::page("Accounts", Some(&me.session.csrf), Some("/accounts"), |h| {
         h.raw("<div class=\"table-wrap\"><table>\n<thead><tr><th>User name</th><th>Created</th><th>Admin</th><th>Sign-in blocked</th><th>Addresses</th><th>Storage used / quota</th><th>Forwarding</th></tr></thead>\n<tbody>");
         for a in &accounts {
-            h.raw("<tr><td><a href=\"/account?id=").text(&a.id.0.to_string()).raw("\">").text(&a.login).raw("</a></td><td>");
-            h.text(&date(a.created_at)).raw("</td><td>").raw(yes_no(a.admin)).raw("</td><td>").raw(yes_no(a.disabled)).raw("</td><td>");
+            h.raw("<tr><td><a href=\"/account?id=")
+                .text(&a.id.0.to_string())
+                .raw("\">")
+                .text(&a.login)
+                .raw("</a></td><td>");
+            h.text(&date(a.created_at))
+                .raw("</td><td>")
+                .raw(yes_no(a.admin))
+                .raw("</td><td>")
+                .raw(yes_no(a.disabled))
+                .raw("</td><td>");
             for (i, (addr, _)) in addresses.iter().filter(|(_, l)| *l == a.login).enumerate() {
                 if i > 0 {
                     h.raw(", ");
@@ -100,18 +127,55 @@ async fn list_page(app: &App, me: &Me, status: u16, new: NewAccount<'_>) -> Resu
                 h.address(addr);
             }
             h.raw("</td><td>");
-            if let Some((used,quota,to,keep))=settings.get(&a.id) {
-                h.text(&format!("{:.2} MiB / ",*used as f64/1048576.0));
-                h.text(&if *quota==0 {"Unlimited".into()} else {format!("{} MiB",quota/1048576)}).raw("</td><td>");
-                if let Some(to)=to { h.text(if *keep {"Copy to "} else {"Forward only to "}).text(to); } else { h.text("Off"); }
-            } else { h.raw("—</td><td>—"); }
+            if let Some(m) = settings.get(&a.id) {
+                h.text(&format!("{:.2} MiB / ", m.used_bytes as f64 / 1048576.0));
+                h.text(&if m.quota_bytes == 0 {
+                    "Unlimited".into()
+                } else {
+                    format!("{} MiB", m.quota_bytes / 1048576)
+                })
+                .raw("</td><td>");
+                if let Some(to) = &m.forward_to {
+                    h.text(if m.keep_copy {
+                        "Copy to "
+                    } else {
+                        "Forward only to "
+                    })
+                    .text(to);
+                } else {
+                    h.text("Off");
+                }
+            } else {
+                h.raw("—</td><td>—");
+            }
             h.raw("</td></tr>\n");
         }
         h.raw("</tbody></table></div>\n<h2>Add an account</h2>\n<form method=\"post\" action=\"/accounts\">").csrf(&me.session.csrf);
         let [login, password, again] = new.errors;
-        h.field(&Field { name: "login", label: "User name", kind: "text", autocomplete: "off", value: Some(new.login), error: login });
-        h.field(&Field { name: "password", label: "Password (at least 12 characters)", kind: "password", autocomplete: "new-password", value: None, error: password });
-        h.field(&Field { name: "again", label: "Password again", kind: "password", autocomplete: "new-password", value: None, error: again });
+        h.field(&Field {
+            name: "login",
+            label: "User name",
+            kind: "text",
+            autocomplete: "off",
+            value: Some(new.login),
+            error: login,
+        });
+        h.field(&Field {
+            name: "password",
+            label: "Password (at least 12 characters)",
+            kind: "password",
+            autocomplete: "new-password",
+            value: None,
+            error: password,
+        });
+        h.field(&Field {
+            name: "again",
+            label: "Password again",
+            kind: "password",
+            autocomplete: "new-password",
+            value: None,
+            error: again,
+        });
         h.raw(r#"<label for="new_admin"><input id="new_admin" type="checkbox" name="new_admin" value="yes">Make this account an admin</label>"#);
         h.raw("<button type=\"submit\">Add account</button></form>\n");
     });
@@ -124,7 +188,10 @@ pub async fn create(app: &App, req: &Request, body: &[u8]) -> Result<Response, S
         Err(r) => return Ok(r),
     };
     let (login, password) = (value(&form, "login"), value(&form, "password"));
-    let mut new = NewAccount { login, ..NewAccount::default() };
+    let mut new = NewAccount {
+        login,
+        ..NewAccount::default()
+    };
     if check_login(login).is_err() {
         new.errors[0] = Some(LOGIN_RULES);
     }
@@ -135,8 +202,11 @@ pub async fn create(app: &App, req: &Request, body: &[u8]) -> Result<Response, S
         return list_page(app, &me, 422, new).await;
     }
     let (l, p) = (login.to_string(), password.to_string());
-    let admin = value(&form,"new_admin")=="yes";
-    match app.checked(move |s| s.create_account_with_role(&l, &p,admin)).await {
+    let admin = value(&form, "new_admin") == "yes";
+    match app
+        .checked(move |s| s.create_account_with_role(&l, &p, admin))
+        .await
+    {
         Ok(id) => {
             crate::log_info!("web: {:?} added account {login:?}", me.account.login);
             Ok(done(id, "created"))
@@ -149,8 +219,7 @@ pub async fn create(app: &App, req: &Request, body: &[u8]) -> Result<Response, S
     }
 }
 
-// ---- an account's page ----------------------------------------------------------------------
-
+// an account's page
 #[derive(Default)]
 struct Notes {
     done: Option<&'static str>,
@@ -167,19 +236,41 @@ pub async fn account(app: &App, req: &Request) -> Result<Response, StoreError> {
         Ok(me) => me,
         Err(r) => return Ok(r),
     };
-    let Some(target) = target(app, param(&req.query, "id")).await? else { return Ok(Response::error(404)) };
+    let Some(target) = target(app, param(&req.query, "id")).await? else {
+        return Ok(Response::error(404));
+    };
     let done = param(&req.query, "done").and_then(done_message);
-    account_page(app, &me, &target, 200, Notes { done, ..Notes::default() }).await
+    account_page(
+        app,
+        &me,
+        &target,
+        200,
+        Notes {
+            done,
+            ..Notes::default()
+        },
+    )
+    .await
 }
 
-async fn account_page(app: &App, me: &Me, target: &Account, status: u16, notes: Notes) -> Result<Response, StoreError> {
+async fn account_page(
+    app: &App,
+    me: &Me,
+    target: &Account,
+    status: u16,
+    notes: Notes,
+) -> Result<Response, StoreError> {
     let login = target.login.clone();
     let mut addresses = app.blocking(|s| s.addresses()).await?;
     addresses.retain(|(_, l)| *l == login);
-    let (id, own, csrf) = (target.id.0.to_string(), target.id == me.account.id, &me.session.csrf);
+    let (id, own, csrf) = (
+        target.id.0.to_string(),
+        target.id == me.account.id,
+        &me.session.csrf,
+    );
     let target_id = target.id;
-    let (used,quota,forward) = app.blocking(move |s|s.mailbox_settings(target_id)).await?;
-    let keep = app.blocking(move|s|s.keeps_copy(target_id)).await?;
+    let (used, quota, forward) = app.blocking(move |s| s.mailbox_settings(target_id)).await?;
+    let keep = app.blocking(move |s| s.keeps_copy(target_id)).await?;
     let destinations = crate::store::preferences::verified_destinations();
     let body = Html::page("Account", Some(csrf), Some("/account"), |h| {
         if let Some(m) = notes.done {
@@ -188,33 +279,55 @@ async fn account_page(app: &App, me: &Me, target: &Account, status: u16, notes: 
         if let Some(m) = notes.message {
             h.raw("<p class=\"error\">").raw(m).raw("</p>\n");
         }
-        h.raw("<h2>").text(&login).raw("</h2>\n<ul><li>Created: ").text(&date(target.created_at));
-        h.raw("</li><li>Admin: ").raw(yes_no(target.admin)).raw("</li><li>Sign-in blocked: ").raw(yes_no(target.disabled)).raw("</li></ul>\n");
+        h.raw("<h2>")
+            .text(&login)
+            .raw("</h2>\n<ul><li>Created: ")
+            .text(&date(target.created_at));
+        h.raw("</li><li>Admin: ")
+            .raw(yes_no(target.admin))
+            .raw("</li><li>Sign-in blocked: ")
+            .raw(yes_no(target.disabled))
+            .raw("</li></ul>\n");
         if target.disabled {
             h.raw("<p class=\"notice\">Sign-in is blocked for this account. Its mail still arrives, and mail apps already connected stay connected until they disconnect.</p>\n");
         }
 
-        h.raw(r#"<h2>Mailbox settings</h2><form method="post" action="/account/settings">"#).csrf(csrf);
+        h.raw(r#"<h2>Mailbox settings</h2><form method="post" action="/account/settings">"#)
+            .csrf(csrf);
         hidden(h, "id", &id);
         h.raw(r#"<label for="quota">Storage limit (MiB)</label><input id="quota" name="quota" type="number" min="0" step="1" value=""#);
-        if quota > 0 { h.text(&(quota / 1048576).to_string()); }
-        h.raw("\"><p>").text(&format!("{:.2} MiB used. Default 1024 MiB (1 GiB). Leave blank for unlimited.", used as f64 / 1048576.0))
+        if quota > 0 {
+            h.text(&(quota / 1048576).to_string());
+        }
+        h.raw("\"><p>")
+            .text(&format!(
+                "{:.2} MiB used. Default 1024 MiB (1 GiB). Leave blank for unlimited.",
+                used as f64 / 1048576.0
+            ))
             .raw(r#"</p><label for="forward">Forward to</label>"#);
         if crate::store::preferences::external_relay() {
-            h.raw(r#"<input type="email" name="forward" id="forward" value=""#).text(forward.as_deref().unwrap_or("")).raw("\">");
+            h.raw(r#"<input type="email" name="forward" id="forward" value=""#)
+                .text(forward.as_deref().unwrap_or(""))
+                .raw("\">");
         } else {
-        h.raw(r#"<select id="forward" name="forward"><option value="">Off</option>"#);
-        for dest in &destinations {
-            h.raw(r#"<option value=""#).text(dest).raw("\"");
-            if forward.as_ref() == Some(dest) { h.raw(" selected"); }
-            h.raw(">").text(dest).raw("</option>");
-        }
-        h.raw("</select>");
+            h.raw(r#"<select id="forward" name="forward"><option value="">Off</option>"#);
+            for dest in &destinations {
+                h.raw(r#"<option value=""#).text(dest).raw("\"");
+                if forward.as_ref() == Some(dest) {
+                    h.raw(" selected");
+                }
+                h.raw(">").text(dest).raw("</option>");
+            }
+            h.raw("</select>");
         }
         h.raw(r#"<label for="delivery">When forwarding</label><select id="delivery" name="delivery"><option value="copy""#);
-        if keep {h.raw(" selected");}
+        if keep {
+            h.raw(" selected");
+        }
         h.raw(r#">Keep a copy in this inbox</option><option value="only""#);
-        if !keep {h.raw(" selected");}
+        if !keep {
+            h.raw(" selected");
+        }
         h.raw(">Forward only</option></select><button>Save mailbox settings</button></form>");
         h.raw("<h2>Addresses</h2>\n");
         if addresses.is_empty() {
@@ -222,17 +335,28 @@ async fn account_page(app: &App, me: &Me, target: &Account, status: u16, notes: 
         } else {
             h.raw("<ul>");
             for (a, _) in &addresses {
-                h.raw("<li>").address(a).raw(" <form method=\"post\" action=\"/account/address/remove\">").csrf(csrf);
+                h.raw("<li>")
+                    .address(a)
+                    .raw(" <form method=\"post\" action=\"/account/address/remove\">")
+                    .csrf(csrf);
                 hidden(h, "id", &id);
                 hidden(h, "address", a);
                 h.raw("<button type=\"submit\" class=\"secondary\">Remove<span class=\"visually-hidden\"> ").text(a).raw("</span></button></form></li>");
             }
             h.raw("</ul>\n");
         }
-        h.raw("<form method=\"post\" action=\"/account/address/add\">").csrf(csrf);
+        h.raw("<form method=\"post\" action=\"/account/address/add\">")
+            .csrf(csrf);
         hidden(h, "id", &id);
         let label = "Add an address: name@domain, or @domain for all other mail for that domain";
-        h.field(&Field { name: "address", label, kind: "text", autocomplete: "off", value: Some(&notes.address), error: notes.address_error.as_deref() });
+        h.field(&Field {
+            name: "address",
+            label,
+            kind: "text",
+            autocomplete: "off",
+            value: Some(&notes.address),
+            error: notes.address_error.as_deref(),
+        });
         h.raw("<button type=\"submit\">Add address</button></form>\n");
 
         h.raw("<h2>Password</h2>\n");
@@ -240,10 +364,25 @@ async fn account_page(app: &App, me: &Me, target: &Account, status: u16, notes: 
             h.raw("<p>Change your own password on <a href=\"/me\">your page</a>.</p>\n");
         } else {
             let [new, again] = notes.password;
-            h.raw("<form method=\"post\" action=\"/account/password\">").csrf(csrf);
+            h.raw("<form method=\"post\" action=\"/account/password\">")
+                .csrf(csrf);
             hidden(h, "id", &id);
-            h.field(&Field { name: "password", label: "New password (at least 12 characters)", kind: "password", autocomplete: "new-password", value: None, error: new });
-            h.field(&Field { name: "again", label: "New password again", kind: "password", autocomplete: "new-password", value: None, error: again });
+            h.field(&Field {
+                name: "password",
+                label: "New password (at least 12 characters)",
+                kind: "password",
+                autocomplete: "new-password",
+                value: None,
+                error: new,
+            });
+            h.field(&Field {
+                name: "again",
+                label: "New password again",
+                kind: "password",
+                autocomplete: "new-password",
+                value: None,
+                error: again,
+            });
             h.raw("<button type=\"submit\">Set password</button></form>\n");
         }
 
@@ -251,14 +390,30 @@ async fn account_page(app: &App, me: &Me, target: &Account, status: u16, notes: 
         if own {
             h.raw("<p>Another admin can block your sign-in or remove your admin.</p>\n");
         } else {
-            let (action, button) = if target.disabled { ("/account/enable", "Allow sign-in") } else { ("/account/disable", "Block sign-in") };
-            h.raw("<form method=\"post\" action=\"").raw(action).raw("\">").csrf(csrf);
+            let (action, button) = if target.disabled {
+                ("/account/enable", "Allow sign-in")
+            } else {
+                ("/account/disable", "Block sign-in")
+            };
+            h.raw("<form method=\"post\" action=\"")
+                .raw(action)
+                .raw("\">")
+                .csrf(csrf);
             hidden(h, "id", &id);
-            h.raw("<button type=\"submit\" class=\"secondary\">").raw(button).raw("</button></form>\n");
-            h.raw("<form method=\"post\" action=\"/account/admin\">").csrf(csrf);
+            h.raw("<button type=\"submit\" class=\"secondary\">")
+                .raw(button)
+                .raw("</button></form>\n");
+            h.raw("<form method=\"post\" action=\"/account/admin\">")
+                .csrf(csrf);
             hidden(h, "id", &id);
             hidden(h, "admin", if target.admin { "off" } else { "on" });
-            h.raw("<button type=\"submit\" class=\"secondary\">").raw(if target.admin { "Remove admin" } else { "Make admin" }).raw("</button></form>\n");
+            h.raw("<button type=\"submit\" class=\"secondary\">")
+                .raw(if target.admin {
+                    "Remove admin"
+                } else {
+                    "Make admin"
+                })
+                .raw("</button></form>\n");
         }
     });
     Ok(Response::html(status, body))
@@ -270,7 +425,17 @@ pub async fn set_password(app: &App, req: &Request, body: &[u8]) -> Result<Respo
         Err(r) => return Ok(r),
     };
     if target.id == me.account.id {
-        return account_page(app, &me, &target, 409, Notes { message: Some(OWN_PASSWORD), ..Notes::default() }).await;
+        return account_page(
+            app,
+            &me,
+            &target,
+            409,
+            Notes {
+                message: Some(OWN_PASSWORD),
+                ..Notes::default()
+            },
+        )
+        .await;
     }
     let password = value(&form, "password").to_string();
     if let Some((field, error)) = new_password_problem(&password, value(&form, "again")) {
@@ -279,8 +444,13 @@ pub async fn set_password(app: &App, req: &Request, body: &[u8]) -> Result<Respo
         return account_page(app, &me, &target, 422, notes).await;
     }
     let login = target.login.clone();
-    app.checked(move |s| s.set_password(&login, &password)).await?;
-    crate::log_info!("web: {:?} set the password of {:?}", me.account.login, target.login);
+    app.checked(move |s| s.set_password(&login, &password))
+        .await?;
+    crate::log_info!(
+        "web: {:?} set the password of {:?}",
+        me.account.login,
+        target.login
+    );
     Ok(done(target.id, "password"))
 }
 
@@ -300,17 +470,54 @@ pub async fn set_flag(app: &App, req: &Request, body: &[u8]) -> Result<Response,
     };
     if target.id == me.account.id && admin != on {
         let me_id = me.account.id;
-        let others = app.blocking(move |s| Ok(s.accounts()?.iter().any(|a| a.admin && !a.disabled && a.id != me_id))).await?;
+        let others = app
+            .blocking(move |s| {
+                Ok(s.accounts()?
+                    .iter()
+                    .any(|a| a.admin && !a.disabled && a.id != me_id))
+            })
+            .await?;
         let message = if others { OWN_ACCESS } else { LAST_ADMIN };
-        return account_page(app, &me, &target, 409, Notes { message: Some(message), ..Notes::default() }).await;
+        return account_page(
+            app,
+            &me,
+            &target,
+            409,
+            Notes {
+                message: Some(message),
+                ..Notes::default()
+            },
+        )
+        .await;
     }
     let login = target.login.clone();
-    match app.blocking(move |s| if admin { s.set_admin(&login, on) } else { s.set_disabled(&login, on) }).await {
+    match app
+        .blocking(move |s| {
+            if admin {
+                s.set_admin(&login, on)
+            } else {
+                s.set_disabled(&login, on)
+            }
+        })
+        .await
+    {
         Ok(()) => {
             crate::log_info!("web: {:?} {did} {:?}", me.account.login, target.login);
             Ok(done(target.id, code))
         }
-        Err(StoreError::LastAdmin) => account_page(app, &me, &target, 409, Notes { message: Some(LAST_ADMIN), ..Notes::default() }).await,
+        Err(StoreError::LastAdmin) => {
+            account_page(
+                app,
+                &me,
+                &target,
+                409,
+                Notes {
+                    message: Some(LAST_ADMIN),
+                    ..Notes::default()
+                },
+            )
+            .await
+        }
         Err(e) => Err(e),
     }
 }
@@ -321,19 +528,34 @@ pub async fn add_address(app: &App, req: &Request, body: &[u8]) -> Result<Respon
         Err(r) => return Ok(r),
     };
     let typed = value(&form, "address");
-    let refused = |error: String| Notes { address: typed.to_string(), address_error: Some(error), ..Notes::default() };
+    let refused = |error: String| Notes {
+        address: typed.to_string(),
+        address_error: Some(error),
+        ..Notes::default()
+    };
     let Ok(address) = normalize_address(typed) else {
         return account_page(app, &me, &target, 422, refused(ADDRESS_RULES.to_string())).await;
     };
     let (a, login) = (address.clone(), target.login.clone());
     match app.blocking(move |s| s.add_address(&a, &login)).await {
         Ok(()) => {
-            crate::log_info!("web: {:?} added address {address:?} to {:?}", me.account.login, target.login);
+            crate::log_info!(
+                "web: {:?} added address {address:?} to {:?}",
+                me.account.login,
+                target.login
+            );
             Ok(done(target.id, "address-added"))
         }
         Err(StoreError::AlreadyExists(_)) => {
             let a = address.clone();
-            let owner = app.blocking(move |s| Ok(s.addresses()?.into_iter().find(|(x, _)| *x == a).map(|(_, l)| l))).await?;
+            let owner = app
+                .blocking(move |s| {
+                    Ok(s.addresses()?
+                        .into_iter()
+                        .find(|(x, _)| *x == a)
+                        .map(|(_, l)| l))
+                })
+                .await?;
             let error = match owner {
                 Some(owner) => format!("{address} already delivers to {owner}."),
                 None => format!("{address} is already in use."),
@@ -363,22 +585,55 @@ pub async fn remove_address(app: &App, req: &Request, body: &[u8]) -> Result<Res
     if !removed {
         return Ok(Response::error(404));
     }
-    crate::log_info!("web: {:?} removed address {address:?} from {:?}", me.account.login, target.login);
+    crate::log_info!(
+        "web: {:?} removed address {address:?} from {:?}",
+        me.account.login,
+        target.login
+    );
     Ok(done(target.id, "address-removed"))
 }
 
 pub async fn settings(app: &App, req: &Request, body: &[u8]) -> Result<Response, StoreError> {
-    let (_, form, target) = match action(app, req, body).await? {Ok(v)=>v,Err(r)=>return Ok(r)};
-    if !form.iter().any(|(k,_)| k=="quota") || !form.iter().any(|(k,_)| k=="forward") {return Ok(Response::error(400));}
+    let (_, form, target) = match action(app, req, body).await? {
+        Ok(v) => v,
+        Err(r) => return Ok(r),
+    };
+    if !form.iter().any(|(k, _)| k == "quota") || !form.iter().any(|(k, _)| k == "forward") {
+        return Ok(Response::error(400));
+    }
     let mib = value(&form, "quota").trim();
-    let quota = if mib.is_empty() {Some(0)} else {mib.parse::<i64>().ok().filter(|n|*n>=0).and_then(|n|n.checked_mul(1048576))};
-    let Some(quota) = quota else {return Ok(Response::error_because(422,"Enter a whole number of MiB or leave the limit blank."));};
-    let to = value(&form,"forward").to_owned();
+    let quota = if mib.is_empty() {
+        Some(0)
+    } else {
+        mib.parse::<i64>()
+            .ok()
+            .filter(|n| *n >= 0)
+            .and_then(|n| n.checked_mul(1048576))
+    };
+    let Some(quota) = quota else {
+        return Ok(Response::error_because(
+            422,
+            "Enter a whole number of MiB or leave the limit blank.",
+        ));
+    };
+    let to = value(&form, "forward").to_owned();
     let id = target.id;
-    let keep = match value(&form,"delivery") {""|"copy"=>true,"only"=>false,_=>return Ok(Response::error(422))};
-    match app.blocking(move |s| s.set_forwarding(id,quota,(!to.is_empty()).then_some(to.as_str()),keep)).await {
-        Ok(())=>Ok(done(id,"settings")),
-        Err(StoreError::InvalidInput(_))=>Ok(Response::error_because(422,"Choose a verified external address.")),
-        Err(e)=>Err(e),
+    let keep = match value(&form, "delivery") {
+        "" | "copy" => true,
+        "only" => false,
+        _ => return Ok(Response::error(422)),
+    };
+    match app
+        .blocking(move |s| {
+            s.set_forwarding(id, quota, (!to.is_empty()).then_some(to.as_str()), keep)
+        })
+        .await
+    {
+        Ok(()) => Ok(done(id, "settings")),
+        Err(StoreError::InvalidInput(_)) => Ok(Response::error_because(
+            422,
+            "Choose a verified external address.",
+        )),
+        Err(e) => Err(e),
     }
 }

@@ -59,7 +59,13 @@ impl Store {
     /// Returns the current flags and modseq of every requested uid that exists (uid order; unknown
     /// uids skipped). Only messages whose flags change get a new modseq: one new value per call,
     /// shared by all messages it changed (RFC 7162 allows this); highest_modseq = max modseq.
-    pub fn store_flags(&self, mailbox: MailboxId, uids: &[u32], op: FlagOp, flags: Flags) -> Result<Vec<FlagUpdate>, StoreError> {
+    pub fn store_flags(
+        &self,
+        mailbox: MailboxId,
+        uids: &[u32],
+        op: FlagOp,
+        flags: Flags,
+    ) -> Result<Vec<FlagUpdate>, StoreError> {
         let mut uids = uids.to_vec();
         uids.sort_unstable();
         uids.dedup();
@@ -70,17 +76,30 @@ impl Store {
         let mut c = self.writer();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let highest: i64 = tx
-            .query_row("SELECT highest_modseq FROM mailboxes WHERE id = ?", [mailbox.0], |r| r.get(0))
+            .query_row(
+                "SELECT highest_modseq FROM mailboxes WHERE id = ?",
+                [mailbox.0],
+                |r| r.get(0),
+            )
             .optional()?
             .ok_or_else(|| StoreError::NotFound(format!("mailbox {}", mailbox.0)))?;
         let next = highest + 1;
         let mut changed = false;
         let mut out = Vec::with_capacity(uids.len());
         {
-            let mut get = tx.prepare_cached("SELECT flags, modseq FROM messages WHERE mailbox_id = ? AND uid = ?")?;
-            let mut set = tx.prepare_cached("UPDATE messages SET flags = ?, modseq = ? WHERE mailbox_id = ? AND uid = ?")?;
+            let mut get = tx.prepare_cached(
+                "SELECT flags, modseq FROM messages WHERE mailbox_id = ? AND uid = ?",
+            )?;
+            let mut set = tx.prepare_cached(
+                "UPDATE messages SET flags = ?, modseq = ? WHERE mailbox_id = ? AND uid = ?",
+            )?;
             for uid in uids {
-                let Some((old, modseq)) = get.query_row(params![mailbox.0, uid], |r| Ok((r.get::<_, u8>(0)?, r.get::<_, i64>(1)?))).optional()? else {
+                let Some((old, modseq)) = get
+                    .query_row(params![mailbox.0, uid], |r| {
+                        Ok((r.get::<_, u8>(0)?, r.get::<_, i64>(1)?))
+                    })
+                    .optional()?
+                else {
                     continue;
                 };
                 let new = match op {
@@ -89,16 +108,27 @@ impl Store {
                     FlagOp::Replace => f,
                 };
                 if new == old {
-                    out.push(FlagUpdate { uid, flags: Flags(old), modseq: modseq as u64 });
+                    out.push(FlagUpdate {
+                        uid,
+                        flags: Flags(old),
+                        modseq: modseq as u64,
+                    });
                 } else {
                     set.execute(params![new, next, mailbox.0, uid])?;
                     changed = true;
-                    out.push(FlagUpdate { uid, flags: Flags(new), modseq: next as u64 });
+                    out.push(FlagUpdate {
+                        uid,
+                        flags: Flags(new),
+                        modseq: next as u64,
+                    });
                 }
             }
         }
         if changed {
-            tx.execute("UPDATE mailboxes SET highest_modseq = ? WHERE id = ?", params![next, mailbox.0])?;
+            tx.execute(
+                "UPDATE mailboxes SET highest_modseq = ? WHERE id = ?",
+                params![next, mailbox.0],
+            )?;
         }
         tx.commit()?;
         Ok(out)
@@ -109,11 +139,18 @@ impl Store {
         let mut c = self.writer();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (floor, uidnext): (u32, u32) = tx
-            .query_row("SELECT recent_uid, uidnext FROM mailboxes WHERE id = ?", [mailbox.0], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT recent_uid, uidnext FROM mailboxes WHERE id = ?",
+                [mailbox.0],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()?
             .ok_or_else(|| StoreError::NotFound(format!("mailbox {}", mailbox.0)))?;
         let upto = uidnext.saturating_sub(1);
-        tx.execute("UPDATE mailboxes SET recent_uid = ? WHERE id = ?", params![upto, mailbox.0])?;
+        tx.execute(
+            "UPDATE mailboxes SET recent_uid = ? WHERE id = ?",
+            params![upto, mailbox.0],
+        )?;
         tx.commit()?;
         Ok(RecentClaim { floor, upto })
     }

@@ -7,11 +7,14 @@ Mail arrives through a Cloudflare Email Worker (`worker/`) that stores each mess
 them over outbound HTTPS, so the NAS needs no open inbound port. Messages are kept as files, with
 mailboxes, UIDs and flags in SQLite. Clients read mail over IMAP with implicit TLS.
 
-Webmail provides a browser inbox, text message reader, and account settings. An optional local
-Postfix queue enables sending from webmail and standalone SMTP delivery. See the
-[webmail and independent-host setup](docs/WEBMAIL.md). IMAP supports reading, marking
-read/starred, and search. APPEND, COPY, UID COPY, and EXPUNGE are supported within INBOX. Creating additional folders and MOVE are still unavailable.
-See the [standalone MX lab](tests/mx-lab/README.md). Detailed deviations are listed in [docs/DEVIATIONS.md](docs/DEVIATIONS.md).
+There is also a small webmail: a browser inbox, a plain-text message reader and account settings.
+Sending from webmail needs an optional local Postfix queue; see [docs/WEBMAIL.md](docs/WEBMAIL.md) for that
+and for running without Cloudflare.
+
+IMAP covers reading, flags and search, plus APPEND, COPY, UID COPY and EXPUNGE inside INBOX. Extra folders
+and MOVE are not supported yet. [docs/DEVIATIONS.md](docs/DEVIATIONS.md) lists where the server departs
+from the RFCs, [docs/MAIL-STANDARDS-REVIEW.md](docs/MAIL-STANDARDS-REVIEW.md) is a longer review, and
+[tests/mx-lab](tests/mx-lab/README.md) is a standalone MX test lab.
 
 ## Build
 
@@ -60,12 +63,13 @@ A small web interface for accounts, served by the same binary over HTTPS.
 - Passwords set on the web need at least 12 characters; the CLI rules are unchanged.
 - Sessions are kept in memory, so a restart signs everyone out. They end after 30 minutes idle or
   12 hours. Failed sign-ins are rate limited.
-- This release upgrades the database to schema v6 with forwarding modes and a 1 GiB default mailbox quota. The upgrade applies this default to previously unlimited mailboxes and preserves existing positive limits. Back up the stopped data directory before upgrading. A v1 database is first
-  copied to `ssm.db.v1.bak` next to it, or to `ssm.db.v1.<unix-seconds>.bak` if that name is
-  taken. Any command of the new binary upgrades it too, `account list` included, even while an
+- The database is at schema v6, which adds forwarding modes and a default mailbox quota of 1 GiB. Mailboxes that
+  had no limit get the default; existing limits are kept. Back up the data directory (with the server stopped)
+  before upgrading. A v1 database is copied to `ssm.db.v1.bak` first, or to `ssm.db.v1.<unix-seconds>.bak` if
+  that name exists. Any command of the new binary upgrades the database, `account list` included, even while an
   older `serve` is running.
-- Cost: the aarch64 musl binary is 3,454,064 bytes, 178,304 more than without the web interface
-  (3,275,760). Idle RSS on a Mac: 3,056 kB with the web listener on, 2,944 kB with it off.
+- Size: the aarch64 musl binary is about 3.4 MB, roughly 170 KB more than without the web interface. Idle
+  memory on a Mac is about 3 MB either way.
 
 ### Rolling back a schema upgrade
 

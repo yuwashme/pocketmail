@@ -91,7 +91,14 @@ impl Poller {
     /// Downloads go to `<store data dir>/tmp`. Clock: `TokioClock`.
     pub fn new(api: WorkerApi, store: Arc<Store>, interval: Duration) -> Poller {
         let tmp = store.data_dir().join("tmp");
-        Poller { api, store, interval, clock: Arc::new(TokioClock), tmp, deleted_at: HashMap::new() }
+        Poller {
+            api,
+            store,
+            interval,
+            clock: Arc::new(TokioClock),
+            tmp,
+            deleted_at: HashMap::new(),
+        }
     }
 
     pub fn with_clock(self, clock: Arc<dyn Clock>) -> Poller {
@@ -102,7 +109,8 @@ impl Poller {
     /// per-message problems are counted in the report.
     pub async fn poll_once(&mut self) -> Result<PassReport, ApiError> {
         let now = self.clock.now();
-        self.deleted_at.retain(|_, t| now.saturating_sub(*t) < REDELETE_INTERVAL);
+        self.deleted_at
+            .retain(|_, t| now.saturating_sub(*t) < REDELETE_INTERVAL);
         let mut report = PassReport::default();
         loop {
             let listing = self.api.list().await?;
@@ -156,18 +164,19 @@ impl Poller {
         // SQLite and fsync block: off the runtime thread. The download is removed when `m` drops.
         let store = self.store.clone();
         let key = id.to_string();
-        let outcome = tokio::task::spawn_blocking(move || -> Result<DeliveryOutcome, StoreError> {
-            let mut body = m.body.open()?;
-            let d = Delivery {
-                key: &key,
-                envelope_from: &m.envelope_from,
-                envelope_to: &m.envelope_to,
-                received_ms,
-                expected_size: m.size,
-            };
-            store.deliver(&d, &mut body)
-        })
-        .await;
+        let outcome =
+            tokio::task::spawn_blocking(move || -> Result<DeliveryOutcome, StoreError> {
+                let mut body = m.body.open()?;
+                let d = Delivery {
+                    key: &key,
+                    envelope_from: &m.envelope_from,
+                    envelope_to: &m.envelope_to,
+                    received_ms,
+                    expected_size: m.size,
+                };
+                store.deliver(&d, &mut body)
+            })
+            .await;
         match outcome {
             Ok(Ok(DeliveryOutcome::ForwardQueued)) => report.delivered += 1,
             Ok(Ok(DeliveryOutcome::Delivered { uid, .. })) => {
@@ -175,7 +184,10 @@ impl Poller {
                 report.delivered += 1;
             }
             Ok(Ok(DeliveryOutcome::Quarantined { path })) => {
-                log_warn!("inbound {id}: no account for the recipient, quarantined in {}", path.display());
+                log_warn!(
+                    "inbound {id}: no account for the recipient, quarantined in {}",
+                    path.display()
+                );
                 report.quarantined += 1;
             }
             Ok(Ok(DeliveryOutcome::AlreadyDelivered)) => report.already_delivered += 1,
@@ -197,7 +209,11 @@ impl Poller {
     /// DELETE `id` unless a DELETE for it was tried less than REDELETE_INTERVAL ago.
     async fn ack(&mut self, id: &str, report: &mut PassReport) {
         let now = self.clock.now();
-        if self.deleted_at.get(id).is_some_and(|t| now.saturating_sub(*t) < REDELETE_INTERVAL) {
+        if self
+            .deleted_at
+            .get(id)
+            .is_some_and(|t| now.saturating_sub(*t) < REDELETE_INTERVAL)
+        {
             return;
         }
         self.deleted_at.insert(id.to_string(), now);
@@ -220,16 +236,22 @@ impl Poller {
                     let wait = backoff_delay(self.interval, failures).as_secs();
                     if matches!(e, ApiError::Unauthorized) {
                         let now = self.clock.now();
-                        if unauthorized_logged.is_none_or(|t| now.saturating_sub(t) >= UNAUTHORIZED_LOG_INTERVAL) {
+                        if unauthorized_logged
+                            .is_none_or(|t| now.saturating_sub(t) >= UNAUTHORIZED_LOG_INTERVAL)
+                        {
                             unauthorized_logged = Some(now);
-                            log_error!("inbound: the Worker refused the pull token (401); next try in {wait} s");
+                            log_error!(
+                                "inbound: the Worker refused the pull token (401); next try in {wait} s"
+                            );
                         }
                     } else {
                         log_warn!("inbound: list failed ({e}); next try in {wait} s");
                     }
                 }
             }
-            self.clock.sleep(backoff_delay(self.interval, failures)).await;
+            self.clock
+                .sleep(backoff_delay(self.interval, failures))
+                .await;
         }
     }
 }

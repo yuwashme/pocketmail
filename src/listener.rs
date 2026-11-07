@@ -40,7 +40,10 @@ impl SlotGuard {
         }
         s.0 += 1;
         s.1.insert(ip, per_ip + 1);
-        Some(SlotGuard { slots: slots.clone(), ip })
+        Some(SlotGuard {
+            slots: slots.clone(),
+            ip,
+        })
     }
 }
 
@@ -86,12 +89,18 @@ pub async fn accept_loop<H, F>(
             }
         };
         if limits.allowed.is_some_and(|allowed| !allowed(peer.ip())) {
-            crate::log_debug!("{name}: connection from {} refused: not on the home network", peer.ip());
+            crate::log_debug!(
+                "{name}: connection from {} refused: not on the home network",
+                peer.ip()
+            );
             drop(tcp);
             continue;
         }
         let Some(slot) = SlotGuard::take(&slots, peer.ip(), limits) else {
-            crate::log_info!("{name}: connection from {} refused: connection cap reached", peer.ip());
+            crate::log_info!(
+                "{name}: connection from {} refused: connection cap reached",
+                peer.ip()
+            );
             drop(tcp); // over the cap: close at once, before any TLS
             continue;
         };

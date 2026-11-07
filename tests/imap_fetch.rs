@@ -23,16 +23,26 @@ async fn compare_goldens(item: &str, kind: &str, names: &[&str], ci_strings: boo
         let want = golden(name, kind);
         match got.get(&seq) {
             None => bad.push(format!("{name}: no FETCH response")),
-            Some(items) if !items.has(item) => bad.push(format!("{name}: no {item} item ({:?})", items.keys())),
+            Some(items) if !items.has(item) => {
+                bad.push(format!("{name}: no {item} item ({:?})", items.keys()))
+            }
             Some(items) => {
                 let v = items.get(item);
                 if !tok_eq(v, &want, ci_strings) {
-                    bad.push(format!("{name}:\n  want {}\n  got  {}", render(&want), render(v)));
+                    bad.push(format!(
+                        "{name}:\n  want {}\n  got  {}",
+                        render(&want),
+                        render(v)
+                    ));
                 }
             }
         }
     }
-    assert!(bad.is_empty(), "{item} differs from the goldens:\n{}", bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{item} differs from the goldens:\n{}",
+        bad.join("\n")
+    );
 }
 
 #[tokio::test]
@@ -55,7 +65,9 @@ async fn flags_internaldate_size_and_uid() {
     let h = Harness::start().await;
     let mb = h.fixtures_account();
     let mut c = h.select(FIXTURE_LOGIN).await;
-    let d = c.cmd("F1", "FETCH 1:* (FLAGS INTERNALDATE RFC822.SIZE UID)").await;
+    let d = c
+        .cmd("F1", "FETCH 1:* (FLAGS INTERNALDATE RFC822.SIZE UID)")
+        .await;
     d.assert_ok();
     let m = d.fetch_map();
     assert_eq!(m.len(), 11);
@@ -64,10 +76,21 @@ async fn flags_internaldate_size_and_uid() {
         let it = &m[&seq];
         assert_eq!(it.flags(), flags(&["\\Recent"]), "{name}: only \\Recent");
         let date = format_imap_datetime(fixture_received_ms(i) / 1000);
-        assert_eq!(it.get("INTERNALDATE"), &Tok::Str(date.clone().into_bytes()), "{name}: INTERNALDATE \"{date}\"");
+        assert_eq!(
+            it.get("INTERNALDATE"),
+            &Tok::Str(date.clone().into_bytes()),
+            "{name}: INTERNALDATE \"{date}\""
+        );
         let blob = h.blob(mb, seq);
-        assert_eq!(blob.len(), fixture(name).len() + "Return-Path: <sender@example.test>\r\n".len());
-        assert_eq!(it.num("RFC822.SIZE"), blob.len() as u64, "{name}: RFC822.SIZE = stored length");
+        assert_eq!(
+            blob.len(),
+            fixture(name).len() + "Return-Path: <sender@example.test>\r\n".len()
+        );
+        assert_eq!(
+            it.num("RFC822.SIZE"),
+            blob.len() as u64,
+            "{name}: RFC822.SIZE = stored length"
+        );
         assert_eq!(it.num("UID"), u64::from(seq));
     }
 }
@@ -82,7 +105,11 @@ async fn uid_fetch_always_includes_uid() {
     let f = d.fetches();
     assert_eq!(f.len(), 11);
     for (seq, items) in f {
-        assert_eq!(items.num("UID"), u64::from(seq), "UID FETCH responses carry UID");
+        assert_eq!(
+            items.num("UID"),
+            u64::from(seq),
+            "UID FETCH responses carry UID"
+        );
     }
 }
 
@@ -91,11 +118,21 @@ async fn macros_all_fast_full() {
     let h = Harness::start().await;
     h.fixtures_account();
     let mut c = h.select(FIXTURE_LOGIN).await;
-    let set = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<std::collections::BTreeSet<_>>();
+    let set = |l: &[&str]| {
+        l.iter()
+            .map(|s| s.to_string())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
     for (mac, want) in [
-        ("ALL", set(&["FLAGS", "INTERNALDATE", "RFC822.SIZE", "ENVELOPE"])),
+        (
+            "ALL",
+            set(&["FLAGS", "INTERNALDATE", "RFC822.SIZE", "ENVELOPE"]),
+        ),
         ("FAST", set(&["FLAGS", "INTERNALDATE", "RFC822.SIZE"])),
-        ("FULL", set(&["FLAGS", "INTERNALDATE", "RFC822.SIZE", "ENVELOPE", "BODY"])),
+        (
+            "FULL",
+            set(&["FLAGS", "INTERNALDATE", "RFC822.SIZE", "ENVELOPE", "BODY"]),
+        ),
     ] {
         let d = c.cmd("M1", &format!("FETCH 3 {mac}")).await;
         d.assert_ok();
@@ -104,7 +141,11 @@ async fn macros_all_fast_full() {
     }
     // FULL's BODY is the non-extensible form.
     let d = c.cmd("M2", "FETCH 3 FULL").await;
-    assert!(tok_eq(d.fetch_map()[&3].get("BODY"), &golden("03-mixed", "body"), true));
+    assert!(tok_eq(
+        d.fetch_map()[&3].get("BODY"),
+        &golden("03-mixed", "body"),
+        true
+    ));
 }
 
 #[tokio::test]
@@ -126,12 +167,19 @@ async fn whole_message_header_and_text_sections() {
         let got = d.fetch_map()[&1].bytes(key);
         assert_eq!(show(&got), show(want), "FETCH 1 {item}");
     }
-    assert_eq!(h.stored_flags(mb, 1), Flags::empty(), "PEEK and RFC822.HEADER leave \\Seen alone");
+    assert_eq!(
+        h.stored_flags(mb, 1),
+        Flags::empty(),
+        "PEEK and RFC822.HEADER leave \\Seen alone"
+    );
 
     let d = c.cmd("B2", "FETCH 2 RFC822").await;
     assert_eq!(d.fetch_map()[&2].bytes("RFC822"), h.blob(mb, 2));
     let d = c.cmd("B3", "FETCH 3 RFC822.TEXT").await;
-    assert_eq!(d.fetch_map()[&3].bytes("RFC822.TEXT"), split_message(&h.blob(mb, 3)).1);
+    assert_eq!(
+        d.fetch_map()[&3].bytes("RFC822.TEXT"),
+        split_message(&h.blob(mb, 3)).1
+    );
 }
 
 #[tokio::test]
@@ -157,7 +205,9 @@ async fn header_fields_and_header_fields_not() {
         ),
     ];
     for (seq, section, key, want) in cases {
-        let d = c.cmd("H1", &format!("FETCH {seq} BODY.PEEK[{section}]")).await;
+        let d = c
+            .cmd("H1", &format!("FETCH {seq} BODY.PEEK[{section}]"))
+            .await;
         d.assert_ok();
         let got = d.fetch_map()[&seq].bytes(&format!("BODY[{key}]"));
         assert_eq!(show(&got), show(want), "BODY[{section}] of {seq}");
@@ -172,10 +222,24 @@ async fn mime_part_sections() {
     let alt = fixture("02-alternative");
     let mixed = fixture("03-mixed");
     let fwd = fixture("04-rfc822");
-    let nested = between(&fwd, b"Content-Type: message/rfc822\r\n\r\n", b"\r\n--outer--").to_vec();
-    assert_eq!(nested.len(), 376, "fixture and golden agree on the nested message size");
+    let nested = between(
+        &fwd,
+        b"Content-Type: message/rfc822\r\n\r\n",
+        b"\r\n--outer--",
+    )
+    .to_vec();
+    assert_eq!(
+        nested.len(),
+        376,
+        "fixture and golden agree on the nested message size"
+    );
     let (nested_head, nested_text) = split_message(&nested);
-    let b64 = between(&mixed, b"Content-ID: <part2@example.test>\r\n\r\n", b"\r\n--mixed-b--").to_vec();
+    let b64 = between(
+        &mixed,
+        b"Content-ID: <part2@example.test>\r\n\r\n",
+        b"\r\n--mixed-b--",
+    )
+    .to_vec();
     assert_eq!(b64.len(), 108);
 
     let cases: Vec<(u32, &str, Vec<u8>)> = vec![
@@ -207,11 +271,17 @@ async fn mime_part_sections() {
     ];
     let mut bad = Vec::new();
     for (seq, section, want) in cases {
-        let d = c.cmd("P1", &format!("FETCH {seq} BODY.PEEK[{section}]")).await;
+        let d = c
+            .cmd("P1", &format!("FETCH {seq} BODY.PEEK[{section}]"))
+            .await;
         d.assert_ok();
         let got = d.fetch_map()[&seq].get(&format!("BODY[{section}]")).clone();
         if got.bytes() != Some(&want[..]) {
-            bad.push(format!("{seq} BODY[{section}]:\n  want {:?}\n  got  {}", show(&want), render(&got)));
+            bad.push(format!(
+                "{seq} BODY[{section}]:\n  want {:?}\n  got  {}",
+                show(&want),
+                render(&got)
+            ));
         }
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
@@ -223,10 +293,16 @@ async fn missing_part_is_empty_not_an_error() {
     h.fixtures_account();
     let mut c = h.select(FIXTURE_LOGIN).await;
     for (seq, section) in [(1, "9"), (2, "3"), (4, "2.5"), (4, "3")] {
-        let d = c.cmd("E1", &format!("FETCH {seq} BODY.PEEK[{section}]")).await;
+        let d = c
+            .cmd("E1", &format!("FETCH {seq} BODY.PEEK[{section}]"))
+            .await;
         d.assert_ok();
         let v = d.fetch_map()[&seq].get(&format!("BODY[{section}]")).clone();
-        assert!(v.is_nil() || v == Tok::Str(Vec::new()), "BODY[{section}] of {seq}: NIL or \"\", got {}", render(&v));
+        assert!(
+            v.is_nil() || v == Tok::Str(Vec::new()),
+            "BODY[{section}] of {seq}: NIL or \"\", got {}",
+            render(&v)
+        );
     }
 }
 
@@ -239,17 +315,45 @@ async fn partial_fetches() {
     let text = split_message(&blob).1;
     let n = blob.len();
     let cases: Vec<(String, String, Vec<u8>)> = vec![
-        ("BODY.PEEK[]<0.10>".into(), "BODY[]<0>".into(), blob[..10].to_vec()),
-        ("BODY.PEEK[TEXT]<5.10>".into(), "BODY[TEXT]<5>".into(), text[5..15].to_vec()),
-        (format!("BODY.PEEK[]<{}.100>", n - 5), format!("BODY[]<{}>", n - 5), blob[n - 5..].to_vec()),
-        ("BODY.PEEK[]<100000.10>".into(), "BODY[]<100000>".into(), Vec::new()),
-        (format!("BODY.PEEK[]<{n}.1>"), format!("BODY[]<{n}>"), Vec::new()),
-        ("BODY.PEEK[HEADER]<0.4>".into(), "BODY[HEADER]<0>".into(), b"Retu".to_vec()),
+        (
+            "BODY.PEEK[]<0.10>".into(),
+            "BODY[]<0>".into(),
+            blob[..10].to_vec(),
+        ),
+        (
+            "BODY.PEEK[TEXT]<5.10>".into(),
+            "BODY[TEXT]<5>".into(),
+            text[5..15].to_vec(),
+        ),
+        (
+            format!("BODY.PEEK[]<{}.100>", n - 5),
+            format!("BODY[]<{}>", n - 5),
+            blob[n - 5..].to_vec(),
+        ),
+        (
+            "BODY.PEEK[]<100000.10>".into(),
+            "BODY[]<100000>".into(),
+            Vec::new(),
+        ),
+        (
+            format!("BODY.PEEK[]<{n}.1>"),
+            format!("BODY[]<{n}>"),
+            Vec::new(),
+        ),
+        (
+            "BODY.PEEK[HEADER]<0.4>".into(),
+            "BODY[HEADER]<0>".into(),
+            b"Retu".to_vec(),
+        ),
     ];
     for (item, key, want) in cases {
         let d = c.cmd("R1", &format!("FETCH 1 {item}")).await;
         d.assert_ok();
-        assert_eq!(show(&d.fetch_map()[&1].bytes(&key)), show(&want), "FETCH 1 {item}");
+        assert_eq!(
+            show(&d.fetch_map()[&1].bytes(&key)),
+            show(&want),
+            "FETCH 1 {item}"
+        );
     }
     let d = c.cmd("R2", "FETCH 2 BODY.PEEK[1]<0.4>").await;
     assert_eq!(d.fetch_map()[&2].bytes("BODY[1]<0>"), b"Plai");
@@ -270,15 +374,32 @@ async fn peek_leaves_seen_alone_and_body_sets_it() {
     if m[&5].has("FLAGS") {
         assert!(!m[&5].flags().contains("\\seen"));
     }
-    assert_eq!(h.stored_flags(mb, 5), Flags::empty(), "no \\Seen from PEEK / RFC822.HEADER / metadata");
+    assert_eq!(
+        h.stored_flags(mb, 5),
+        Flags::empty(),
+        "no \\Seen from PEEK / RFC822.HEADER / metadata"
+    );
 
     // Each of these sets \Seen and reports the new FLAGS in the same command's untagged FETCH data.
-    for (seq, item) in [(6, "BODY[TEXT]"), (7, "RFC822"), (8, "RFC822.TEXT"), (9, "BODY[HEADER]"), (10, "BODY[1]")] {
+    for (seq, item) in [
+        (6, "BODY[TEXT]"),
+        (7, "RFC822"),
+        (8, "RFC822.TEXT"),
+        (9, "BODY[HEADER]"),
+        (10, "BODY[1]"),
+    ] {
         let d = c.cmd("K2", &format!("FETCH {seq} {item}")).await;
         d.assert_ok();
         let m = d.fetch_map();
-        assert!(m[&seq].has("FLAGS") && m[&seq].flags().contains("\\seen"), "FETCH {seq} {item} reports \\Seen:\n{}", d.transcript());
-        assert!(h.stored_flags(mb, seq).contains(Flags::SEEN), "FETCH {seq} {item} stores \\Seen");
+        assert!(
+            m[&seq].has("FLAGS") && m[&seq].flags().contains("\\seen"),
+            "FETCH {seq} {item} reports \\Seen:\n{}",
+            d.transcript()
+        );
+        assert!(
+            h.stored_flags(mb, seq).contains(Flags::SEEN),
+            "FETCH {seq} {item} stores \\Seen"
+        );
     }
     // Already \Seen: no change, still fine.
     c.cmd("K3", "FETCH 6 BODY[TEXT]").await.assert_ok();
@@ -293,7 +414,14 @@ async fn sequence_sets() {
     let h = Harness::start().await;
     h.simple_account("seq@example.com", 6);
     let mut c = h.select("seq@example.com").await;
-    let seqs = |d: &Done| d.fetches().into_iter().map(|(s, _)| s).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let seqs = |d: &Done| {
+        d.fetches()
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
     for (set, want) in [
         ("1:*", vec![1, 2, 3, 4, 5, 6]),
         ("*", vec![6]),
@@ -313,7 +441,14 @@ async fn sequence_sets() {
     for set in ["7", "0", "1:7", "0:2", "a"] {
         c.cmd("Q2", &format!("FETCH {set} UID")).await.assert_bad();
     }
-    for (set, want) in [("1:*", vec![1, 2, 3, 4, 5, 6]), ("100:*", vec![6]), ("3:4", vec![3, 4]), ("5:100", vec![5, 6]), ("100:200", vec![]), ("100", vec![])] {
+    for (set, want) in [
+        ("1:*", vec![1, 2, 3, 4, 5, 6]),
+        ("100:*", vec![6]),
+        ("3:4", vec![3, 4]),
+        ("5:100", vec![5, 6]),
+        ("100:200", vec![]),
+        ("100", vec![]),
+    ] {
         let d = c.cmd("Q3", &format!("UID FETCH {set} FLAGS")).await;
         d.assert_ok();
         assert_eq!(seqs(&d), want, "UID FETCH {set}");
@@ -325,7 +460,13 @@ async fn bad_fetch_syntax() {
     let h = Harness::start().await;
     h.simple_account("seq@example.com", 2);
     let mut c = h.select("seq@example.com").await;
-    for cmd in ["FETCH 1 (FOO)", "FETCH 1", "FETCH 1 BODY[1.]", "FETCH 1 BODY[]<1.0", "FETCH 1 (FLAGS"] {
+    for cmd in [
+        "FETCH 1 (FOO)",
+        "FETCH 1",
+        "FETCH 1 BODY[1.]",
+        "FETCH 1 BODY[]<1.0",
+        "FETCH 1 (FLAGS",
+    ] {
         c.cmd("Y1", cmd).await.assert_bad();
     }
     c.cmd("Y2", "NOOP").await.assert_ok();
@@ -335,14 +476,22 @@ async fn bad_fetch_syntax() {
 async fn nul_bytes_are_replaced_on_output_with_a_consistent_size() {
     let h = Harness::start().await;
     h.account("nul@example.com");
-    h.deliver("nul@example.com", b"Subject: nul\r\n\r\nbefore\0after\r\n", ms("01-Mar-2026 10:00:00 +0000"));
+    h.deliver(
+        "nul@example.com",
+        b"Subject: nul\r\n\r\nbefore\0after\r\n",
+        ms("01-Mar-2026 10:00:00 +0000"),
+    );
     let mut c = h.select("nul@example.com").await;
     let d = c.cmd("Z1", "FETCH 1 (RFC822.SIZE BODY.PEEK[])").await;
     d.assert_ok();
     let m = d.fetch_map();
     let body = m[&1].bytes("BODY[]");
     assert!(!body.contains(&0), "NUL must not reach the client");
-    assert_eq!(body.len() as u64, m[&1].num("RFC822.SIZE"), "size and literal agree");
+    assert_eq!(
+        body.len() as u64,
+        m[&1].num("RFC822.SIZE"),
+        "size and literal agree"
+    );
 }
 
 #[tokio::test]
@@ -368,10 +517,19 @@ async fn message_of_25_mib() {
     assert!(got == blob, "25 MiB body differs from the stored blob");
 
     let n = blob.len();
-    let d = c.cmd("H3", &format!("FETCH 1 BODY.PEEK[]<{}.200>", n - 100)).await;
-    assert_eq!(d.fetch_map()[&1].bytes(&format!("BODY[]<{}>", n - 100)), blob[n - 100..]);
+    let d = c
+        .cmd("H3", &format!("FETCH 1 BODY.PEEK[]<{}.200>", n - 100))
+        .await;
+    assert_eq!(
+        d.fetch_map()[&1].bytes(&format!("BODY[]<{}>", n - 100)),
+        blob[n - 100..]
+    );
     let d = c.cmd("H4", "FETCH 1 BODYSTRUCTURE").await;
     let bs = d.fetch_map()[&1].get("BODYSTRUCTURE").clone();
     let text_len = blob.len() - split_message(&blob).0.len();
-    assert_eq!(bs.list()[6], Tok::Atom(text_len.to_string()), "BODYSTRUCTURE size of the 25 MiB text");
+    assert_eq!(
+        bs.list()[6],
+        Tok::Atom(text_len.to_string()),
+        "BODYSTRUCTURE size of the 25 MiB text"
+    );
 }

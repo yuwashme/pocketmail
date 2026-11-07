@@ -18,11 +18,19 @@ async fn add_replace_remove() {
     let d = c.cmd("S1", "STORE 1 +FLAGS (\\Flagged)").await;
     d.assert_ok();
     let m = d.fetch_map();
-    assert_eq!(m[&1].flags(), flags(&["\\Flagged", "\\Recent"]), "{}", d.transcript());
+    assert_eq!(
+        m[&1].flags(),
+        flags(&["\\Flagged", "\\Recent"]),
+        "{}",
+        d.transcript()
+    );
     assert_eq!(h.stored_flags(mb, 1), Flags::FLAGGED);
 
     let d = c.cmd("S2", "STORE 2 FLAGS (\\Seen \\Draft)").await;
-    assert_eq!(d.fetch_map()[&2].flags(), flags(&["\\Seen", "\\Draft", "\\Recent"]));
+    assert_eq!(
+        d.fetch_map()[&2].flags(),
+        flags(&["\\Seen", "\\Draft", "\\Recent"])
+    );
     assert_eq!(h.stored_flags(mb, 2), Flags::SEEN | Flags::DRAFT);
 
     let d = c.cmd("S3", "STORE 2 -FLAGS (\\Draft)").await;
@@ -48,28 +56,38 @@ async fn silent_variants_send_no_fetch() {
     let mut c = h.select(USER).await;
     for (cmd, uid, want) in [
         ("STORE 1 +FLAGS.SILENT (\\Answered)", 1, Flags::ANSWERED),
-        ("STORE 2 FLAGS.SILENT (\\Seen \\Flagged)", 2, Flags::SEEN | Flags::FLAGGED),
+        (
+            "STORE 2 FLAGS.SILENT (\\Seen \\Flagged)",
+            2,
+            Flags::SEEN | Flags::FLAGGED,
+        ),
         ("STORE 2 -FLAGS.SILENT (\\Seen)", 2, Flags::FLAGGED),
         ("UID STORE 3 +FLAGS.SILENT (\\Draft)", 3, Flags::DRAFT),
     ] {
         let d = c.cmd("Q1", cmd).await;
         d.assert_ok();
-        assert!(d.data("FETCH").is_empty(), "{cmd}: no FETCH response:\n{}", d.transcript());
+        assert!(
+            d.data("FETCH").is_empty(),
+            "{cmd}: no FETCH response:\n{}",
+            d.transcript()
+        );
         assert_eq!(h.stored_flags(mb, uid), want, "{cmd}");
     }
 }
 
 #[tokio::test]
 async fn deleted_search_and_expunge_follow_the_session_sequence_numbers() {
-    let h=Harness::start().await;
-    let mb=h.simple_account(USER,3);
-    let mut c=h.select(USER).await;
-    c.cmd("D1","STORE 1:2 +FLAGS (\\Deleted)").await.assert_ok();
-    assert_eq!(c.cmd("D2","SEARCH DELETED").await.search(),vec![1,2]);
-    let result=c.cmd("D3","EXPUNGE").await;
+    let h = Harness::start().await;
+    let mb = h.simple_account(USER, 3);
+    let mut c = h.select(USER).await;
+    c.cmd("D1", "STORE 1:2 +FLAGS (\\Deleted)")
+        .await
+        .assert_ok();
+    assert_eq!(c.cmd("D2", "SEARCH DELETED").await.search(), vec![1, 2]);
+    let result = c.cmd("D3", "EXPUNGE").await;
     result.assert_ok();
-    assert_eq!(result.data("EXPUNGE").len(),2);
-    assert_eq!(h.store.messages(mb).unwrap()[0].uid,3);
+    assert_eq!(result.data("EXPUNGE").len(), 2);
+    assert_eq!(h.store.messages(mb).unwrap()[0].uid, 3);
 }
 
 #[tokio::test]
@@ -91,11 +109,16 @@ async fn uid_store_and_ranges() {
         assert!(h.stored_flags(mb, uid).contains(Flags::SEEN));
     }
     let d = c.cmd("U3", "UID STORE 3:100 -FLAGS (\\Seen)").await;
-    assert_eq!(d.fetch_map().keys().copied().collect::<Vec<_>>(), vec![3, 4]);
+    assert_eq!(
+        d.fetch_map().keys().copied().collect::<Vec<_>>(),
+        vec![3, 4]
+    );
     assert_eq!(h.stored_flags(mb, 3), Flags::empty());
     assert_eq!(h.stored_flags(mb, 2), Flags::SEEN | Flags::FLAGGED);
 
-    c.cmd("U4", "UID STORE 100:200 +FLAGS (\\Seen)").await.assert_ok();
+    c.cmd("U4", "UID STORE 100:200 +FLAGS (\\Seen)")
+        .await
+        .assert_ok();
     c.cmd("U5", "STORE 5 +FLAGS (\\Seen)").await.assert_bad();
     c.cmd("U6", "STORE 1 +FLAGS (\\Seen").await.assert_bad();
     c.cmd("U7", "STORE 1 TOGGLE (\\Seen)").await.assert_bad();
@@ -108,7 +131,9 @@ async fn store_is_refused_after_examine() {
     let mut c = h.login(USER).await;
     c.cmd("E1", "EXAMINE INBOX").await.assert_ok();
     c.cmd("E2", "STORE 1 +FLAGS (\\Seen)").await.assert_no();
-    c.cmd("E3", "UID STORE 2 FLAGS (\\Flagged)").await.assert_no();
+    c.cmd("E3", "UID STORE 2 FLAGS (\\Flagged)")
+        .await
+        .assert_no();
     assert_eq!(h.stored_flags(mb, 1), Flags::empty());
     assert_eq!(h.stored_flags(mb, 2), Flags::empty());
 }
@@ -119,9 +144,15 @@ async fn changes_are_visible_to_another_session() {
     h.simple_account(USER, 2);
     let mut a = h.select(USER).await;
     let mut b = h.select(USER).await;
-    a.cmd("A1", "STORE 1 +FLAGS (\\Flagged \\Answered)").await.assert_ok();
+    a.cmd("A1", "STORE 1 +FLAGS (\\Flagged \\Answered)")
+        .await
+        .assert_ok();
     let d = b.cmd("B1", "FETCH 1 FLAGS").await;
     let f = d.fetch_map()[&1].flags();
-    assert!(f.contains("\\flagged") && f.contains("\\answered"), "{}", d.transcript());
+    assert!(
+        f.contains("\\flagged") && f.contains("\\answered"),
+        "{}",
+        d.transcript()
+    );
     assert!(!f.contains("\\recent"), "B did not claim \\Recent");
 }

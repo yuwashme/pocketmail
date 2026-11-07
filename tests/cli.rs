@@ -18,12 +18,22 @@ fn ssm(data: &Path, args: &[&str], stdin: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
     child.wait_with_output().unwrap()
 }
 
 fn ok(o: &Output) -> String {
-    assert!(o.status.success(), "exit {:?}, stderr: {}", o.status, String::from_utf8_lossy(&o.stderr));
+    assert!(
+        o.status.success(),
+        "exit {:?}, stderr: {}",
+        o.status,
+        String::from_utf8_lossy(&o.stderr)
+    );
     String::from_utf8_lossy(&o.stdout).into_owned()
 }
 
@@ -36,10 +46,20 @@ fn data() -> (tempfile::TempDir, std::path::PathBuf) {
 #[test]
 fn account_add_reads_the_password_from_stdin() {
     let (_t, d) = data();
-    ok(&ssm(&d, &["account", "add", "test@example.com"], "correct horse\n"));
+    ok(&ssm(
+        &d,
+        &["account", "add", "test@example.com"],
+        "correct horse\n",
+    ));
     let s = Store::open_admin(&d).unwrap();
-    let id = s.account_id("test@example.com").unwrap().expect("account created");
-    assert_eq!(s.authenticate("test@example.com", "correct horse").unwrap(), Some(id));
+    let id = s
+        .account_id("test@example.com")
+        .unwrap()
+        .expect("account created");
+    assert_eq!(
+        s.authenticate("test@example.com", "correct horse").unwrap(),
+        Some(id)
+    );
 }
 
 #[test]
@@ -47,7 +67,14 @@ fn a_password_on_the_command_line_is_refused() {
     let (_t, d) = data();
     let o = ssm(&d, &["account", "add", "test@example.com", "secret"], "");
     assert_eq!(o.status.code(), Some(2), "usage error");
-    assert!(!d.join("ssm.db").exists() || Store::open_admin(&d).unwrap().accounts().unwrap().is_empty());
+    assert!(
+        !d.join("ssm.db").exists()
+            || Store::open_admin(&d)
+                .unwrap()
+                .accounts()
+                .unwrap()
+                .is_empty()
+    );
 }
 
 #[test]
@@ -62,11 +89,18 @@ fn passwd_list_and_addresses() {
     let (_t, d) = data();
     ok(&ssm(&d, &["account", "add", "alice"], "old\r\n"));
     ok(&ssm(&d, &["account", "passwd", "alice"], "new pw\n"));
-    ok(&ssm(&d, &["address", "add", "Alice@EXAMPLE.com", "alice"], ""));
+    ok(&ssm(
+        &d,
+        &["address", "add", "Alice@EXAMPLE.com", "alice"],
+        "",
+    ));
     ok(&ssm(&d, &["address", "add", "@example.com", "alice"], ""));
     let list = ok(&ssm(&d, &["account", "list"], ""));
     assert!(list.contains("alice"), "{list}");
-    assert!(list.contains("alice@example.com") && list.contains("@example.com"), "{list}");
+    assert!(
+        list.contains("alice@example.com") && list.contains("@example.com"),
+        "{list}"
+    );
     let s = Store::open_admin(&d).unwrap();
     let id = s.account_id("alice").unwrap();
     assert_eq!(s.authenticate("alice", "new pw").unwrap(), id);
@@ -88,7 +122,11 @@ fn errors_exit_non_zero_with_a_message() {
 
 #[test]
 fn missing_data_dir_is_reported() {
-    let o = Command::new(env!("CARGO_BIN_EXE_synology-mail-server")).args(["account", "list"]).env_clear().output().unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_synology-mail-server"))
+        .args(["account", "list"])
+        .env_clear()
+        .output()
+        .unwrap();
     assert_eq!(o.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&o.stderr).contains("SSM_DATA_DIR"));
 }
@@ -125,16 +163,23 @@ fn serve_opens_the_store_holds_the_lock_and_idles() {
     assert!(still_running, "serve must keep running");
 }
 
-// ---- admin accounts ---------------------------------------------------------------------------
-
+// admin accounts
 const LAST_ADMIN: &str = "At least one admin must remain";
 
 fn acct(data: &Path, login: &str) -> Account {
-    Store::open_admin(data).unwrap().accounts().unwrap().into_iter().find(|a| a.login == login).expect("account exists")
+    Store::open_admin(data)
+        .unwrap()
+        .accounts()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.login == login)
+        .expect("account exists")
 }
 
 fn line_of<'a>(list: &'a str, login: &str) -> &'a str {
-    list.lines().find(|l| l.split('\t').next() == Some(login)).unwrap_or_else(|| panic!("no line for {login}:\n{list}"))
+    list.lines()
+        .find(|l| l.split('\t').next() == Some(login))
+        .unwrap_or_else(|| panic!("no line for {login}:\n{list}"))
 }
 
 #[test]
@@ -151,8 +196,16 @@ fn account_admin_on_and_off() {
     assert!(!acct(&d, "alice").admin);
     assert!(acct(&d, "bob").admin);
 
-    for bad in [&["account", "admin", "alice"][..], &["account", "admin", "alice", "yes"], &["account", "admin", "alice", "on", "x"]] {
-        assert_eq!(ssm(&d, bad, "").status.code(), Some(2), "{bad:?} is a usage error");
+    for bad in [
+        &["account", "admin", "alice"][..],
+        &["account", "admin", "alice", "yes"],
+        &["account", "admin", "alice", "on", "x"],
+    ] {
+        assert_eq!(
+            ssm(&d, bad, "").status.code(),
+            Some(2),
+            "{bad:?} is a usage error"
+        );
     }
     let o = ssm(&d, &["account", "admin", "nobody", "on"], "");
     assert_eq!(o.status.code(), Some(1));
@@ -191,7 +244,10 @@ fn passwd_works_for_an_admin() {
     ok(&ssm(&d, &["account", "passwd", "alice"], "new pw\n"));
     let a = acct(&d, "alice");
     assert!(a.admin);
-    assert_ne!(a.auth_stamp, before, "a CLI password change ends web sessions");
+    assert_ne!(
+        a.auth_stamp, before,
+        "a CLI password change ends web sessions"
+    );
     let s = Store::open_admin(&d).unwrap();
     assert_eq!(s.authenticate("alice", "new pw").unwrap(), Some(a.id));
     assert_eq!(s.authenticate("alice", "old pw").unwrap(), None);
@@ -205,15 +261,29 @@ fn list_shows_admin() {
     ok(&ssm(&d, &["account", "add", "bob"], "pw-b\n"));
     ok(&ssm(&d, &["account", "admin", "alice", "on"], ""));
     let list = ok(&ssm(&d, &["account", "list"], ""));
-    assert!(line_of(&list, "alice").split('\t').any(|f| f == "ADMIN"), "{list}");
-    assert!(!line_of(&list, "bob").split('\t').any(|f| f == "ADMIN"), "{list}");
+    assert!(
+        line_of(&list, "alice").split('\t').any(|f| f == "ADMIN"),
+        "{list}"
+    );
+    assert!(
+        !line_of(&list, "bob").split('\t').any(|f| f == "ADMIN"),
+        "{list}"
+    );
 }
 
 #[test]
 fn usage_names_account_admin_and_the_web_settings() {
-    let o = Command::new(env!("CARGO_BIN_EXE_synology-mail-server")).arg("--help").env_clear().output().unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_synology-mail-server"))
+        .arg("--help")
+        .env_clear()
+        .output()
+        .unwrap();
     let usage = ok(&o);
-    for want in ["account admin <login> on|off", "SSM_WEB_LISTEN", "SSM_WEB_ALLOW_PUBLIC"] {
+    for want in [
+        "account admin <login> on|off",
+        "SSM_WEB_LISTEN",
+        "SSM_WEB_ALLOW_PUBLIC",
+    ] {
         assert!(usage.contains(want), "usage must name {want}:\n{usage}");
     }
 }
@@ -221,12 +291,19 @@ fn usage_names_account_admin_and_the_web_settings() {
 #[test]
 fn standalone_delivery_deduplicates_queue_retries() {
     let (_t, d) = data();
-    ok(&ssm(&d, &["account","add","a"], "password"));
-    ok(&ssm(&d, &["address","add","a@example.org","a"], ""));
+    ok(&ssm(&d, &["account", "add", "a"], "password"));
+    ok(&ssm(&d, &["address", "add", "a@example.org", "a"], ""));
     for _ in 0..2 {
-        ok(&ssm(&d, &["deliver","ABC123","","a@example.org"], "Subject: Test\r\n\r\nHello"));
+        ok(&ssm(
+            &d,
+            &["deliver", "ABC123", "", "a@example.org"],
+            "Subject: Test\r\n\r\nHello",
+        ));
     }
     let s = Store::open_admin(&d).unwrap();
-    let mb = s.find_mailbox(s.account_id("a").unwrap().unwrap(), "INBOX").unwrap().unwrap();
+    let mb = s
+        .find_mailbox(s.account_id("a").unwrap().unwrap(), "INBOX")
+        .unwrap()
+        .unwrap();
     assert_eq!(s.messages(mb.id).unwrap().len(), 1);
 }

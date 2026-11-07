@@ -23,9 +23,18 @@ async fn all_pages(h: &WebHarness) -> Vec<(&'static str, Resp)> {
     pages.push(("failed sign-in", b.sign_in(USER, "wrong-password").await));
     assert_eq!(b.sign_in(USER, &pw).await.status, 303);
     pages.push(("own page", b.get("/me").await));
-    pages.push(("new passwords differ", b.change_password(&pw, NEW, "a-new-password-for-usex").await));
-    pages.push(("new password too short", b.change_password(&pw, "short", "short").await));
-    pages.push(("wrong current password", b.change_password("wrong-password", NEW, NEW).await));
+    pages.push((
+        "new passwords differ",
+        b.change_password(&pw, NEW, "a-new-password-for-usex").await,
+    ));
+    pages.push((
+        "new password too short",
+        b.change_password(&pw, "short", "short").await,
+    ));
+    pages.push((
+        "wrong current password",
+        b.change_password("wrong-password", NEW, NEW).await,
+    ));
     let r = b.change_password(&pw, NEW, NEW).await;
     assert_eq!(r.status, 303);
     pages.push(("password changed", b.follow(r).await));
@@ -35,7 +44,9 @@ async fn all_pages(h: &WebHarness) -> Vec<(&'static str, Resp)> {
 
     let mut locked = h.browser();
     for i in 1..=5 {
-        locked.sign_in(&format!("nobody{i}@example.com"), "wrong-password").await;
+        locked
+            .sign_in(&format!("nobody{i}@example.com"), "wrong-password")
+            .await;
     }
     pages.push(("locked", locked.sign_in(USER, NEW).await));
 
@@ -54,27 +65,54 @@ async fn admin_pages(h: &WebHarness) -> Vec<(&'static str, Resp)> {
     for i in 1..=20 {
         let login = format!("user{i:02}-with-a-longer-name@example.com");
         h.user(&login);
-        h.store.add_address(&format!("info{i:02}-for-the-family@example.com"), &login).unwrap();
+        h.store
+            .add_address(&format!("info{i:02}-for-the-family@example.com"), &login)
+            .unwrap();
     }
-    h.store.add_address("@example.org", "user01-with-a-longer-name@example.com").unwrap();
-    h.store.set_disabled("user02-with-a-longer-name@example.com", true).unwrap();
+    h.store
+        .add_address("@example.org", "user01-with-a-longer-name@example.com")
+        .unwrap();
+    h.store
+        .set_disabled("user02-with-a-longer-name@example.com", true)
+        .unwrap();
     let mut b = h.signed_in(ADMIN).await;
     let mut pages = vec![("account list", b.get("/accounts").await)];
-    pages.push(("new account, passwords differ", b.create_account("new@example.com", PW, "a-password-for-an-accounT").await));
-    pages.push(("new account, bad login", b.create_account("a new@example.com", PW, PW).await));
+    pages.push((
+        "new account, passwords differ",
+        b.create_account("new@example.com", PW, "a-password-for-an-accounT")
+            .await,
+    ));
+    pages.push((
+        "new account, bad login",
+        b.create_account("a new@example.com", PW, PW).await,
+    ));
     pages.push(("new account exists", b.create_account(ADMIN, PW, PW).await));
     let user = "user01-with-a-longer-name@example.com";
     pages.push(("account page", b.get(&account_href(h.id(user))).await));
-    pages.push(("blocked account page", b.get(&account_href(h.id("user02-with-a-longer-name@example.com"))).await));
+    pages.push((
+        "blocked account page",
+        b.get(&account_href(h.id("user02-with-a-longer-name@example.com")))
+            .await,
+    ));
     pages.push(("own account page", b.get(&account_href(h.id(ADMIN))).await));
-    pages.push(("set password, too short", b.set_password(user, "short", "short").await));
-    pages.push(("address refused", b.add_address(user, "a+b@example.com").await));
+    pages.push((
+        "set password, too short",
+        b.set_password(user, "short", "short").await,
+    ));
+    pages.push((
+        "address refused",
+        b.add_address(user, "a+b@example.com").await,
+    ));
     pages.push(("address in use", b.add_address(user, ADMIN).await));
     let r = b.add_address(user, "new@example.com").await;
     assert_eq!(r.status, 303);
     pages.push(("address added", b.follow(r).await));
     let block = b.account_form(user, "/account/disable").await;
-    pages.push(("own block refused", b.submit(&block.with("id", &h.id(ADMIN).to_string()), &[]).await));
+    pages.push((
+        "own block refused",
+        b.submit(&block.with("id", &h.id(ADMIN).to_string()), &[])
+            .await,
+    ));
 
     let expect = [200, 422, 422, 409, 200, 200, 200, 422, 422, 409, 200, 409];
     assert_eq!(pages.len(), expect.len());
@@ -92,7 +130,10 @@ async fn every_page(h: &WebHarness) -> Vec<(&'static str, Resp)> {
 
 /// The page's inputs that a person fills in or ticks.
 fn fields(html: &str) -> Vec<Tag> {
-    tags(html, "input").into_iter().filter(|i| !matches!(i.attr("type"), Some("hidden" | "submit" | "button"))).collect()
+    tags(html, "input")
+        .into_iter()
+        .filter(|i| !matches!(i.attr("type"), Some("hidden" | "submit" | "button")))
+        .collect()
 }
 
 #[tokio::test]
@@ -100,7 +141,11 @@ async fn every_page_plus_css_under_20_kb() {
     let h = WebHarness::start().await;
     let css = css_source().len();
     for (what, r) in every_page(&h).await {
-        assert!(r.body.len() + css < PAGE_BUDGET, "{what}: {} bytes of HTML + {css} of CSS", r.body.len());
+        assert!(
+            r.body.len() + css < PAGE_BUDGET,
+            "{what}: {} bytes of HTML + {css} of CSS",
+            r.body.len()
+        );
     }
 }
 
@@ -110,16 +155,31 @@ async fn no_script_anywhere() {
     for (what, r) in every_page(&h).await {
         let text = r.text();
         let lower = text.to_ascii_lowercase();
-        for bad in ["<script", "javascript:", "<style", "<iframe", "<object", "<embed"] {
+        for bad in [
+            "<script",
+            "javascript:",
+            "<style",
+            "<iframe",
+            "<object",
+            "<embed",
+        ] {
             assert!(!lower.contains(bad), "{what}: {bad}\n{text}");
         }
         for t in all_tags(&text) {
             for (name, _) in &t.attrs {
-                assert!(!name.starts_with("on") && name != "style", "{what}: <{} {name}=…>", t.name);
+                assert!(
+                    !name.starts_with("on") && name != "style",
+                    "{what}: <{} {name}=…>",
+                    t.name
+                );
             }
             if t.name == "link" {
                 assert_eq!(t.attr("rel"), Some("stylesheet"), "{what}: {t:?}");
-                assert_eq!(t.attr("href"), Some(css_path().as_str()), "{what}: only the stylesheet is linked");
+                assert_eq!(
+                    t.attr("href"),
+                    Some(css_path().as_str()),
+                    "{what}: only the stylesheet is linked"
+                );
             }
         }
         assert_eq!(r.header("content-security-policy"), Some(CSP), "{what}");
@@ -131,22 +191,50 @@ async fn every_input_labelled() {
     let h = WebHarness::start().await;
     for (what, r) in every_page(&h).await {
         let text = r.text();
-        let ids: Vec<String> = all_tags(&text).iter().filter_map(|t| t.attr("id").map(str::to_string)).collect();
-        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len(), "{what}: ids are unique: {ids:?}");
+        let ids: Vec<String> = all_tags(&text)
+            .iter()
+            .filter_map(|t| t.attr("id").map(str::to_string))
+            .collect();
+        assert_eq!(
+            ids.iter().collect::<HashSet<_>>().len(),
+            ids.len(),
+            "{what}: ids are unique: {ids:?}"
+        );
         let labels: Vec<Tag> = tags(&text, "label");
         for input in fields(&text) {
-            let id = input.attr("id").unwrap_or_else(|| panic!("{what}: input without an id: {input:?}"));
-            let label = labels.iter().find(|l| l.attr("for") == Some(id)).unwrap_or_else(|| panic!("{what}: no <label for={id:?}>"));
-            let label_text = text[label.end..].split("</label>").next().unwrap_or("").trim();
+            let id = input
+                .attr("id")
+                .unwrap_or_else(|| panic!("{what}: input without an id: {input:?}"));
+            let label = labels
+                .iter()
+                .find(|l| l.attr("for") == Some(id))
+                .unwrap_or_else(|| panic!("{what}: no <label for={id:?}>"));
+            let label_text = text[label.end..]
+                .split("</label>")
+                .next()
+                .unwrap_or("")
+                .trim();
             assert!(!label_text.is_empty(), "{what}: label for {id:?} has text");
             assert!(input.has("name"), "{what}: {input:?}");
         }
         for (form, _) in forms(&text) {
-            assert!(form.attr("method").is_some_and(|m| m.eq_ignore_ascii_case("post")), "{what}: {form:?}");
-            assert!(form.attr("action").is_some_and(|a| a.starts_with('/') && !a.starts_with("//")), "{what}: {form:?}");
+            assert!(
+                form.attr("method")
+                    .is_some_and(|m| m.eq_ignore_ascii_case("post")),
+                "{what}: {form:?}"
+            );
+            assert!(
+                form.attr("action")
+                    .is_some_and(|a| a.starts_with('/') && !a.starts_with("//")),
+                "{what}: {form:?}"
+            );
         }
         for button in tags(&text, "button") {
-            let label = text[button.end..].split("</button>").next().unwrap_or("").trim();
+            let label = text[button.end..]
+                .split("</button>")
+                .next()
+                .unwrap_or("")
+                .trim();
             assert!(!label.is_empty(), "{what}: a button with text: {button:?}");
         }
     }
@@ -163,9 +251,12 @@ async fn errors_described_by_field() {
                 None | Some("false") => continue,
                 Some(v) => assert_eq!(v, "true", "{what}: {input:?}"),
             }
-            let by = input.attr("aria-describedby").unwrap_or_else(|| panic!("{what}: invalid input without aria-describedby: {input:?}"));
+            let by = input.attr("aria-describedby").unwrap_or_else(|| {
+                panic!("{what}: invalid input without aria-describedby: {input:?}")
+            });
             for id in by.split_whitespace() {
-                let msg = text_of_id(&text, id).unwrap_or_else(|| panic!("{what}: aria-describedby={id:?} names no element"));
+                let msg = text_of_id(&text, id)
+                    .unwrap_or_else(|| panic!("{what}: aria-describedby={id:?} names no element"));
                 assert!(!msg.is_empty(), "{what}: the error {id:?} has text");
             }
         }
@@ -179,10 +270,25 @@ async fn errors_described_by_field() {
             .filter_map(|i| i.attr("autocomplete").map(str::to_string))
             .collect()
     };
-    assert_eq!(invalid("wrong current password"), ["current-password"], "the current password field is in error");
-    assert_eq!(invalid("new password too short"), ["new-password"], "the (first) new password field is in error");
-    assert_eq!(invalid("new passwords differ"), ["new-password"], "one new password field is in error");
-    assert!(invalid("own page").is_empty() && invalid("sign-in").is_empty(), "no errors before a submit");
+    assert_eq!(
+        invalid("wrong current password"),
+        ["current-password"],
+        "the current password field is in error"
+    );
+    assert_eq!(
+        invalid("new password too short"),
+        ["new-password"],
+        "the (first) new password field is in error"
+    );
+    assert_eq!(
+        invalid("new passwords differ"),
+        ["new-password"],
+        "one new password field is in error"
+    );
+    assert!(
+        invalid("own page").is_empty() && invalid("sign-in").is_empty(),
+        "no errors before a submit"
+    );
 }
 
 #[tokio::test]
@@ -191,28 +297,52 @@ async fn viewport_meta() {
     for (what, r) in all_pages(&h).await {
         let text = r.text();
         let html = tags(&text, "html");
-        assert!(html.len() == 1 && html[0].attr("lang") == Some("en"), "{what}: <html lang=\"en\">");
+        assert!(
+            html.len() == 1 && html[0].attr("lang") == Some("en"),
+            "{what}: <html lang=\"en\">"
+        );
         let metas = tags(&text, "meta");
-        assert!(metas.iter().any(|m| m.attr("charset").is_some_and(|c| c.eq_ignore_ascii_case("utf-8"))), "{what}: charset");
-        let viewport: Vec<&Tag> = metas.iter().filter(|m| m.attr("name") == Some("viewport")).collect();
+        assert!(
+            metas.iter().any(|m| m
+                .attr("charset")
+                .is_some_and(|c| c.eq_ignore_ascii_case("utf-8"))),
+            "{what}: charset"
+        );
+        let viewport: Vec<&Tag> = metas
+            .iter()
+            .filter(|m| m.attr("name") == Some("viewport"))
+            .collect();
         assert_eq!(viewport.len(), 1, "{what}: one viewport meta");
-        let content = viewport[0].attr("content").unwrap_or_default().replace(' ', "");
+        let content = viewport[0]
+            .attr("content")
+            .unwrap_or_default()
+            .replace(' ', "");
         assert!(content.contains("width=device-width"), "{what}: {content}");
-        assert!(!content.contains("user-scalable=no") && !content.contains("maximum-scale"), "{what}: zoom is not blocked: {content}");
-        assert!(text_of_id_or_tag(&text, "title").is_some_and(|t| !t.is_empty()), "{what}: a title");
+        assert!(
+            !content.contains("user-scalable=no") && !content.contains("maximum-scale"),
+            "{what}: zoom is not blocked: {content}"
+        );
+        assert!(
+            text_of_id_or_tag(&text, "title").is_some_and(|t| !t.is_empty()),
+            "{what}: a title"
+        );
         if matches!(r.status, 200 | 422) {
-            assert!(text_of_id_or_tag(&text, "title").is_some_and(|t| t.contains("Pocketmail")), "{what}: the site name in the title");
+            assert!(
+                text_of_id_or_tag(&text, "title").is_some_and(|t| t.contains("Pocketmail")),
+                "{what}: the site name in the title"
+            );
         }
     }
 }
 
 fn text_of_id_or_tag(html: &str, tag: &str) -> Option<String> {
     let t = tags(html, tag).into_iter().next()?;
-    Some(unescape(html[t.end..].split(&format!("</{tag}>")).next()?.trim()))
+    Some(unescape(
+        html[t.end..].split(&format!("</{tag}>")).next()?.trim(),
+    ))
 }
 
-// ---------------------------------------------------------------------------------------------
-// Navigation, error pages and wording
+// // Navigation, error pages and wording
 
 const ADMIN: &str = "admin@example.com";
 
@@ -231,7 +361,11 @@ fn nav_links(html: &str, what: &str) -> Vec<(String, String, Option<String>)> {
         .into_iter()
         .map(|a| {
             let text = visible_text(nav[a.end..].split("</a>").next().unwrap_or_default());
-            (a.attr("href").unwrap_or_default().to_string(), text, a.attr("aria-current").map(str::to_string))
+            (
+                a.attr("href").unwrap_or_default().to_string(),
+                text,
+                a.attr("aria-current").map(str::to_string),
+            )
         })
         .collect()
 }
@@ -243,7 +377,11 @@ async fn admin_pages_have_nav_with_current_page() {
     h.user(USER);
     let mut b = h.signed_in(ADMIN).await;
     let user_page = account_href(h.id(USER));
-    for (what, path, current) in [("account list", "/accounts", Some("/accounts")), ("own page", "/me", Some("/me")), ("account page", user_page.as_str(), None)] {
+    for (what, path, current) in [
+        ("account list", "/accounts", Some("/accounts")),
+        ("own page", "/me", Some("/me")),
+        ("account page", user_page.as_str(), None),
+    ] {
         let r = b.get(path).await;
         assert_eq!(r.status, 200, "{what}: {}", r.text());
         let links = nav_links(&r.text(), what);
@@ -254,13 +392,22 @@ async fn admin_pages_have_nav_with_current_page() {
         }
         for (href, _, aria) in &links {
             let want = (Some(href.as_str()) == current).then_some("page");
-            assert_eq!(aria.as_deref().filter(|v| *v == "page"), want, "{what}: aria-current=\"page\" only on the link to this page ({href}): {links:?}");
+            assert_eq!(
+                aria.as_deref().filter(|v| *v == "page"),
+                want,
+                "{what}: aria-current=\"page\" only on the link to this page ({href}): {links:?}"
+            );
         }
     }
 
     let mut user = h.signed_in(USER).await;
     let me = user.get("/me").await.text();
-    assert!(!tags(&me, "a").iter().any(|a| a.attr("href") == Some("/accounts")), "a non-admin sees no Accounts link:\n{me}");
+    assert!(
+        !tags(&me, "a")
+            .iter()
+            .any(|a| a.attr("href") == Some("/accounts")),
+        "a non-admin sees no Accounts link:\n{me}"
+    );
 }
 
 /// A `<main>` that says why, in a sentence besides its heading, and a link to `/`. Returns the
@@ -270,9 +417,18 @@ fn assert_explained(r: &Resp, what: &str) -> String {
     let text = r.text();
     let main = inner(&text, "main").unwrap_or_else(|| panic!("{what}: a <main>:\n{text}"));
     let heading = inner(main, "h1").map(visible_text).unwrap_or_default();
-    let said = visible_text(main).replacen(&heading, "", 1).trim().to_string();
-    assert!(said.contains('.') && said.split_whitespace().count() >= 3, "{what}: a one-sentence reason besides the heading {heading:?}, got {said:?}:\n{text}");
-    assert!(tags(&text, "a").iter().any(|a| a.attr("href") == Some("/")), "{what}: a link to /:\n{text}");
+    let said = visible_text(main)
+        .replacen(&heading, "", 1)
+        .trim()
+        .to_string();
+    assert!(
+        said.contains('.') && said.split_whitespace().count() >= 3,
+        "{what}: a one-sentence reason besides the heading {heading:?}, got {said:?}:\n{text}"
+    );
+    assert!(
+        tags(&text, "a").iter().any(|a| a.attr("href") == Some("/")),
+        "{what}: a link to /:\n{text}"
+    );
     said
 }
 
@@ -292,7 +448,9 @@ async fn error_pages_say_why_and_link_home() {
 
     assert_eq!(b.get("/me").await.status, 200);
     let token = b.csrf.clone().expect("a csrf token on the own page");
-    let r = b.post_exact("/logout", &[(CSRF_FIELD, &one_off(&token))]).await;
+    let r = b
+        .post_exact("/logout", &[(CSRF_FIELD, &one_off(&token))])
+        .await;
     assert_eq!(r.status, 403, "a wrong CSRF token");
     assert_explained(&r, "403 CSRF failure");
 }
@@ -300,24 +458,61 @@ async fn error_pages_say_why_and_link_home() {
 #[tokio::test]
 async fn login_and_address_inputs_not_capitalized_or_spellchecked() {
     let h = WebHarness::start().await;
-    let setup = h.server.setup_path().expect("a setup link while no admin exists");
+    let setup = h
+        .server
+        .setup_path()
+        .expect("a setup link while no admin exists");
     let setup_page = h.get(&setup).await;
     assert_eq!(setup_page.status, 200);
     h.admin(ADMIN);
     h.user(USER);
     let mut b = h.signed_in(ADMIN).await;
 
-    let mut found = vec![("sign-in", post_form(&h.get("/login").await.text(), "/login"))];
-    found.push(("add account", post_form(&b.get("/accounts").await.text(), "/accounts")));
-    found.push(("add address", b.account_form(USER, "/account/address/add").await));
-    found.extend(post_forms(&setup_page.text(), "/setup").into_iter().map(|f| ("setup", f)));
-    assert_eq!(found.len(), 5, "sign-in, add account, add address and the two setup forms");
+    let mut found = vec![(
+        "sign-in",
+        post_form(&h.get("/login").await.text(), "/login"),
+    )];
+    found.push((
+        "add account",
+        post_form(&b.get("/accounts").await.text(), "/accounts"),
+    ));
+    found.push((
+        "add address",
+        b.account_form(USER, "/account/address/add").await,
+    ));
+    found.extend(
+        post_forms(&setup_page.text(), "/setup")
+            .into_iter()
+            .map(|f| ("setup", f)),
+    );
+    assert_eq!(
+        found.len(),
+        5,
+        "sign-in, add account, add address and the two setup forms"
+    );
     for (what, form) in found {
-        let text: Vec<&Tag> = form.fields.iter().filter(|f| matches!(f.attr("type"),None|Some("text")|Some("email"))).collect();
-        assert_eq!(text.len(), 1, "{what}: one user name or address input: {:?}", form.fields);
+        let text: Vec<&Tag> = form
+            .fields
+            .iter()
+            .filter(|f| matches!(f.attr("type"), None | Some("text") | Some("email")))
+            .collect();
+        assert_eq!(
+            text.len(),
+            1,
+            "{what}: one user name or address input: {:?}",
+            form.fields
+        );
         let input = text[0];
-        assert_eq!(input.attr("autocapitalize"), Some("none"), "{what}: phones must not capitalize a user name or address: {input:?}");
-        assert_eq!(input.attr("spellcheck"), Some("false"), "{what}: no spellcheck on a user name or address: {input:?}");
+        assert_eq!(
+            input.attr("autocapitalize"),
+            Some("none"),
+            "{what}: phones must not capitalize a user name or address: {input:?}"
+        );
+        assert_eq!(
+            input.attr("spellcheck"),
+            Some("false"),
+            "{what}: no spellcheck on a user name or address: {input:?}"
+        );
     }
 }
 
@@ -332,10 +527,21 @@ async fn user_name_wording_is_consistent() {
     let header = &rows.first().expect("the account table").0;
     let form = post_form(&list, "/accounts");
     let field = form.text_field();
-    let label = tags(&list, "label").into_iter().find(|l| l.attr("for") == Some(field.as_str())).expect("a label for the user name");
-    let label = visible_text(list[label.end..].split("</label>").next().unwrap_or_default());
+    let label = tags(&list, "label")
+        .into_iter()
+        .find(|l| l.attr("for") == Some(field.as_str()))
+        .expect("a label for the user name");
+    let label = visible_text(
+        list[label.end..]
+            .split("</label>")
+            .next()
+            .unwrap_or_default(),
+    );
     assert_eq!(label, "User name", "the new-account form's label");
-    assert_eq!(header[0], label, "the table's first column is headed as the form labels it: {header:?}");
+    assert_eq!(
+        header[0], label,
+        "the table's first column is headed as the form labels it: {header:?}"
+    );
 
     let pages = [
         ("account list", list.clone()),
@@ -347,6 +553,9 @@ async fn user_name_wording_is_consistent() {
         let text = visible_text(&html);
         let lower = text.to_lowercase();
         let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).collect();
-        assert!(!words.iter().any(|w| *w == "login" || *w == "logins"), "{what}: says \"user name\", never \"login\": {text}");
+        assert!(
+            !words.iter().any(|w| *w == "login" || *w == "logins"),
+            "{what}: says \"user name\", never \"login\": {text}"
+        );
     }
 }

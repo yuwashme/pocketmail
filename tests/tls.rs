@@ -32,7 +32,9 @@ async fn handshake(
     });
     let tcp = TcpStream::connect(addr).await.unwrap();
     let name = ServerName::try_from(name.to_string()).unwrap();
-    let mut s = tokio_rustls::TlsConnector::from(client).connect(name, tcp).await?;
+    let mut s = tokio_rustls::TlsConnector::from(client)
+        .connect(name, tcp)
+        .await?;
     s.write_all(b"ping\n").await?;
     let mut b = Vec::new();
     s.read_to_end(&mut b).await?;
@@ -44,7 +46,9 @@ async fn handshake(
 async fn server_config_from_pem_serves_tls13_to_a_client_trusting_the_ca() {
     let pki = Pki::local();
     let server = tls::server_config(pki.cert_pem.as_bytes(), pki.key_pem.as_bytes()).unwrap();
-    let v = handshake(server, client_tls(&pki), "127.0.0.1").await.unwrap();
+    let v = handshake(server, client_tls(&pki), "127.0.0.1")
+        .await
+        .unwrap();
     assert_eq!(v, rustls::ProtocolVersion::TLSv1_3);
 }
 
@@ -53,7 +57,13 @@ async fn server_config_still_accepts_tls12_clients() {
     // Keep tls12 for Outlook / Windows 10 IMAP clients.
     let pki = Pki::local();
     let server = tls::server_config(pki.cert_pem.as_bytes(), pki.key_pem.as_bytes()).unwrap();
-    let v = handshake(server, client_tls_versions(&pki, &[&rustls::version::TLS12]), "localhost").await.unwrap();
+    let v = handshake(
+        server,
+        client_tls_versions(&pki, &[&rustls::version::TLS12]),
+        "localhost",
+    )
+    .await
+    .unwrap();
     assert_eq!(v, rustls::ProtocolVersion::TLSv1_2);
 }
 
@@ -67,7 +77,9 @@ async fn server_config_from_files_reads_the_pem_files() {
     std::fs::write(&cert, format!("{}{}", pki.cert_pem, pki.ca_pem)).unwrap();
     std::fs::write(&key, &pki.key_pem).unwrap();
     let server = tls::server_config_from_files(&cert, &key).unwrap();
-    handshake(server, client_tls(&pki), "127.0.0.1").await.unwrap();
+    handshake(server, client_tls(&pki), "127.0.0.1")
+        .await
+        .unwrap();
 }
 
 #[test]
@@ -79,11 +91,23 @@ fn server_config_errors_are_specific() {
     let key = dir.path().join("key.pem");
     std::fs::write(&key, &pki.key_pem).unwrap();
 
-    assert!(matches!(tls::server_config_from_files(&missing, &key), Err(TlsError::Io(_))));
+    assert!(matches!(
+        tls::server_config_from_files(&missing, &key),
+        Err(TlsError::Io(_))
+    ));
     // A key where the certificate should be, and a certificate where the key should be.
-    assert!(matches!(tls::server_config(pki.key_pem.as_bytes(), pki.key_pem.as_bytes()), Err(TlsError::NoCertificate)));
-    assert!(matches!(tls::server_config(pki.cert_pem.as_bytes(), pki.cert_pem.as_bytes()), Err(TlsError::NoPrivateKey)));
-    assert!(matches!(tls::server_config(b"", pki.key_pem.as_bytes()), Err(TlsError::NoCertificate)));
+    assert!(matches!(
+        tls::server_config(pki.key_pem.as_bytes(), pki.key_pem.as_bytes()),
+        Err(TlsError::NoCertificate)
+    ));
+    assert!(matches!(
+        tls::server_config(pki.cert_pem.as_bytes(), pki.cert_pem.as_bytes()),
+        Err(TlsError::NoPrivateKey)
+    ));
+    assert!(matches!(
+        tls::server_config(b"", pki.key_pem.as_bytes()),
+        Err(TlsError::NoCertificate)
+    ));
     // Certificate and key from different key pairs: refused at startup, not at the first handshake.
     assert!(tls::server_config(pki.cert_pem.as_bytes(), other.key_pem.as_bytes()).is_err());
 }
@@ -92,22 +116,50 @@ fn server_config_errors_are_specific() {
 async fn client_config_with_roots_verifies_chain_and_host_name() {
     let pki = Pki::new(&["worker.example"]);
     let client = tls::client_config_with_roots(vec![pki.ca_der.clone()]).unwrap();
-    handshake(server_tls(&pki), client.clone(), "worker.example").await.unwrap();
+    handshake(server_tls(&pki), client.clone(), "worker.example")
+        .await
+        .unwrap();
     // Same trusted chain, wrong name.
-    assert!(handshake(server_tls(&pki), client, "other.example").await.is_err());
+    assert!(
+        handshake(server_tls(&pki), client, "other.example")
+            .await
+            .is_err()
+    );
     // Name right, but signed by a CA the client does not trust.
     let stranger = Pki::new(&["worker.example"]);
     let client = tls::client_config_with_roots(vec![stranger.ca_der.clone()]).unwrap();
-    assert!(handshake(server_tls(&pki), client, "worker.example").await.is_err());
+    assert!(
+        handshake(server_tls(&pki), client, "worker.example")
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
 async fn client_config_speaks_tls12_and_tls13() {
     let pki = Pki::local();
     let client = tls::client_config_with_roots(vec![pki.ca_der.clone()]).unwrap();
-    let v12 = handshake(server_tls_versions(&pki, &[&rustls::version::TLS12]), client.clone(), "127.0.0.1").await.unwrap();
-    let v13 = handshake(server_tls_versions(&pki, &[&rustls::version::TLS13]), client, "127.0.0.1").await.unwrap();
-    assert_eq!((v12, v13), (rustls::ProtocolVersion::TLSv1_2, rustls::ProtocolVersion::TLSv1_3));
+    let v12 = handshake(
+        server_tls_versions(&pki, &[&rustls::version::TLS12]),
+        client.clone(),
+        "127.0.0.1",
+    )
+    .await
+    .unwrap();
+    let v13 = handshake(
+        server_tls_versions(&pki, &[&rustls::version::TLS13]),
+        client,
+        "127.0.0.1",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (v12, v13),
+        (
+            rustls::ProtocolVersion::TLSv1_2,
+            rustls::ProtocolVersion::TLSv1_3
+        )
+    );
 }
 
 #[tokio::test]
@@ -115,5 +167,8 @@ async fn default_client_config_uses_public_roots_only() {
     // webpki-roots (Mozilla) must not trust a private test CA; the Worker's real cert is public.
     let pki = Pki::local();
     let err = handshake(server_tls(&pki), tls::client_config(), "127.0.0.1").await;
-    assert!(err.is_err(), "a self-made CA must not be trusted by the production client config");
+    assert!(
+        err.is_err(),
+        "a self-made CA must not be trusted by the production client config"
+    );
 }

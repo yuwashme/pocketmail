@@ -47,7 +47,10 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 fn invalid(var: &str, reason: impl Into<String>) -> ConfigError {
-    ConfigError::Invalid { var: var.to_string(), reason: reason.into() }
+    ConfigError::Invalid {
+        var: var.to_string(),
+        reason: reason.into(),
+    }
 }
 
 /// Plain decimal digits only ("+5", "-5", "1e3", "120s" are rejected).
@@ -76,7 +79,9 @@ impl Config {
             .collect();
         let get = |k: &str| vars.get(k).map(String::as_str);
 
-        let data_dir = PathBuf::from(get("SSM_DATA_DIR").ok_or_else(|| ConfigError::Missing("SSM_DATA_DIR".into()))?);
+        let data_dir = PathBuf::from(
+            get("SSM_DATA_DIR").ok_or_else(|| ConfigError::Missing("SSM_DATA_DIR".into()))?,
+        );
 
         let pull_url = match get("SSM_PULL_URL") {
             None => None,
@@ -98,7 +103,10 @@ impl Config {
             Some(v) => {
                 let secs = number("SSM_PULL_INTERVAL_SECS", v)?;
                 if secs < MIN_PULL_INTERVAL_SECS {
-                    return Err(invalid("SSM_PULL_INTERVAL_SECS", format!("at least {MIN_PULL_INTERVAL_SECS} (KV list quota)")));
+                    return Err(invalid(
+                        "SSM_PULL_INTERVAL_SECS",
+                        format!("at least {MIN_PULL_INTERVAL_SECS} (KV list quota)"),
+                    ));
                 }
                 Duration::from_secs(secs)
             }
@@ -113,21 +121,35 @@ impl Config {
             None => 100,
             Some(v) => match number("SSM_IMAP_MAX_CONN", v)? {
                 0 => return Err(invalid("SSM_IMAP_MAX_CONN", "must be at least 1")),
-                n => usize::try_from(n).map_err(|_| invalid("SSM_IMAP_MAX_CONN", "number too large"))?,
+                n => usize::try_from(n)
+                    .map_err(|_| invalid("SSM_IMAP_MAX_CONN", "number too large"))?,
             },
         };
 
         let tls_cert = get("SSM_TLS_CERT").map(PathBuf::from);
         let tls_key = get("SSM_TLS_KEY").map(PathBuf::from);
         match (&tls_cert, &tls_key) {
-            (Some(_), None) => return Err(invalid("SSM_TLS_KEY", "must be set together with SSM_TLS_CERT")),
-            (None, Some(_)) => return Err(invalid("SSM_TLS_CERT", "must be set together with SSM_TLS_KEY")),
+            (Some(_), None) => {
+                return Err(invalid(
+                    "SSM_TLS_KEY",
+                    "must be set together with SSM_TLS_CERT",
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(invalid(
+                    "SSM_TLS_CERT",
+                    "must be set together with SSM_TLS_KEY",
+                ));
+            }
             _ => {}
         }
 
         let web_listen = match get("SSM_WEB_LISTEN").unwrap_or("0.0.0.0:8443") {
             "off" => None,
-            v => Some(v.parse().map_err(|_| invalid("SSM_WEB_LISTEN", "must be address:port or off"))?),
+            v => Some(
+                v.parse()
+                    .map_err(|_| invalid("SSM_WEB_LISTEN", "must be address:port or off"))?,
+            ),
         };
         let web_allow_public = match get("SSM_WEB_ALLOW_PUBLIC") {
             None | Some("no") => false,

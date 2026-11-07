@@ -1,16 +1,26 @@
 use std::io::Read;
 use std::net::IpAddr;
 
-use mail_parser::MessageParser;
 use super::html::Html;
-use super::http::{ Request, Response};
+use super::http::{Request, Response};
 use super::pages::{App, see_other, signed_in};
 use crate::store::StoreError;
+use mail_parser::MessageParser;
 
 // This listener has its own sessions. The allowlist also applies to decoded paths.
 pub(super) async fn route(app: &App, req: &Request, body: &[u8], ip: IpAddr) -> Response {
-    if !matches!(req.path.as_str(), "/" | "/inbox" | "/outbox" | "/message" | "/compose" | "/login" | "/logout" | "/me" | "/me/password")
-        && req.path != super::CSS_PATH {
+    if !matches!(
+        req.path.as_str(),
+        "/" | "/inbox"
+            | "/outbox"
+            | "/message"
+            | "/compose"
+            | "/login"
+            | "/logout"
+            | "/me"
+            | "/me/password"
+    ) && req.path != super::CSS_PATH
+    {
         return Response::error(404);
     }
     let mut response = super::route(app, req, body, ip).await;
@@ -25,24 +35,45 @@ pub(super) async fn route(app: &App, req: &Request, body: &[u8], ip: IpAddr) -> 
 }
 
 pub(super) async fn open(app: &App, req: &Request) -> Result<Response, StoreError> {
-    let Some(me) = signed_in(app, req).await? else { return Ok(see_other("/login")) };
+    let Some(me) = signed_in(app, req).await? else {
+        return Ok(see_other("/login"));
+    };
     let account = me.account.id;
     let csrf = me.session.csrf;
     if req.path == "/outbox" {
-        let rows=app.blocking(move|s|s.outbox_status(account)).await?;
-        return Ok(Response::html(200,Html::page("Outbox",Some(&csrf),None,|h|{
-            h.raw("<p><a href=\"/inbox\">Inbox</a></p>");
-            if rows.is_empty() {h.raw("<p>No external submissions yet.</p>");}
-            for (to,state,time) in rows {
-                h.raw("<p><strong>").text(&state).raw("</strong> · ").text(&to).raw("<br><small>").text(&crate::time::format_rfc3339(time)).raw("</small></p>");
-            }
-        })));
+        let rows = app.blocking(move |s| s.outbox_status(account)).await?;
+        return Ok(Response::html(
+            200,
+            Html::page("Outbox", Some(&csrf), None, |h| {
+                h.raw("<p><a href=\"/inbox\">Inbox</a></p>");
+                if rows.is_empty() {
+                    h.raw("<p>No external submissions yet.</p>");
+                }
+                for (to, state, time) in rows {
+                    h.raw("<p><strong>")
+                        .text(&state)
+                        .raw("</strong> · ")
+                        .text(&to)
+                        .raw("<br><small>")
+                        .text(&crate::time::format_rfc3339(time))
+                        .raw("</small></p>");
+                }
+            }),
+        ));
     }
     let detail = req.path == "/message";
-    let value = if !detail && req.query.is_empty() { i64::from(u32::MAX) + 1 } else {
+    let value = if !detail && req.query.is_empty() {
+        i64::from(u32::MAX) + 1
+    } else {
         let key = if detail { "uid=" } else { "before=" };
-        let Some(n) = req.query.strip_prefix(key).and_then(|s| s.parse::<u32>().ok()).filter(|n| *n > 0)
-            else { return Ok(Response::error(400)) };
+        let Some(n) = req
+            .query
+            .strip_prefix(key)
+            .and_then(|s| s.parse::<u32>().ok())
+            .filter(|n| *n > 0)
+        else {
+            return Ok(Response::error(400));
+        };
         i64::from(n)
     };
     app.blocking(move |s| {

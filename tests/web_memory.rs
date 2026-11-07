@@ -98,15 +98,34 @@ async fn thousand_sessions_bounded_heap() {
         delta / CAP as isize,
         BUDGET / 1024
     );
-    assert_eq!(first.get("/me").await.status, 200, "{CAP} sessions fit; this one is now the most recently seen");
+    assert_eq!(
+        first.get("/me").await.status,
+        200,
+        "{CAP} sessions fit; this one is now the most recently seen"
+    );
 
     sign_ins(&h, 200).await;
     let over = settled_live().await;
-    assert!(over - full < OVER_CAP_SLACK, "200 sign-ins past the cap grew the heap by {} KiB", (over - full) / 1024);
-    assert_to_login(&second.get("/me").await, "the session seen longest ago was dropped for a new one");
-    assert_eq!(first.get("/me").await.status, 200, "a session seen recently stays");
+    assert!(
+        over - full < OVER_CAP_SLACK,
+        "200 sign-ins past the cap grew the heap by {} KiB",
+        (over - full) / 1024
+    );
+    assert_to_login(
+        &second.get("/me").await,
+        "the session seen longest ago was dropped for a new one",
+    );
+    assert_eq!(
+        first.get("/me").await.status,
+        200,
+        "a session seen recently stays"
+    );
 
     let mut newest = h.browser();
     assert_eq!(newest.sign_in(USER, &password(USER)).await.status, 303);
-    assert_eq!(newest.get("/me").await.status, 200, "the newest session works");
+    assert_eq!(
+        newest.get("/me").await.status,
+        200,
+        "the newest session works"
+    );
 }

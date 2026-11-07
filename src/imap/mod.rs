@@ -69,7 +69,12 @@ pub struct ImapServer {
 impl ImapServer {
     /// Spawn the accept loop on the current tokio runtime and return at once. `listener` is
     /// already bound (tests bind 127.0.0.1:0); `clock` drives every timer.
-    pub fn start(listener: tokio::net::TcpListener, store: Arc<Store>, config: ServerConfig, clock: Arc<dyn Clock>) -> io::Result<ImapServer> {
+    pub fn start(
+        listener: tokio::net::TcpListener,
+        store: Arc<Store>,
+        config: ServerConfig,
+        clock: Arc<dyn Clock>,
+    ) -> io::Result<ImapServer> {
         let addr = listener.local_addr()?;
         tokio::spawn(accept_loop(listener, store, Arc::new(config), clock));
         Ok(ImapServer { addr })
@@ -80,11 +85,34 @@ impl ImapServer {
     }
 }
 
-async fn accept_loop(listener: tokio::net::TcpListener, store: Arc<Store>, config: Arc<ServerConfig>, clock: Arc<dyn Clock>) {
-    let limits = Limits { max_conn: config.max_conn, max_conn_per_ip: config.max_conn_per_ip, allowed: None };
+async fn accept_loop(
+    listener: tokio::net::TcpListener,
+    store: Arc<Store>,
+    config: Arc<ServerConfig>,
+    clock: Arc<dyn Clock>,
+) {
+    let limits = Limits {
+        max_conn: config.max_conn,
+        max_conn_per_ip: config.max_conn_per_ip,
+        allowed: None,
+    };
     let (tls, session_clock) = (config.tls.clone(), clock.clone());
-    listener::accept_loop("imap", listener, tls, limits, HANDSHAKE_TIMEOUT, clock, move |tls, peer| {
-        session::run(tls, peer, store.clone(), config.clone(), session_clock.clone())
-    })
+    listener::accept_loop(
+        "imap",
+        listener,
+        tls,
+        limits,
+        HANDSHAKE_TIMEOUT,
+        clock,
+        move |tls, peer| {
+            session::run(
+                tls,
+                peer,
+                store.clone(),
+                config.clone(),
+                session_clock.clone(),
+            )
+        },
+    )
     .await
 }

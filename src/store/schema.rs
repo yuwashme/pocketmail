@@ -112,14 +112,18 @@ pub fn migrate(c: &mut Connection, db: &Path) -> Result<(), StoreError> {
     }
     if found < 5 {
         // Replace the column so every mailbox insertion gets the same default in SQLite.
-        tx.execute_batch("ALTER TABLE mailboxes RENAME COLUMN quota_bytes TO previous_quota;
+        tx.execute_batch(
+            "ALTER TABLE mailboxes RENAME COLUMN quota_bytes TO previous_quota;
             ALTER TABLE mailboxes ADD COLUMN quota_bytes INTEGER NOT NULL DEFAULT 1073741824;
             UPDATE mailboxes SET quota_bytes=previous_quota WHERE previous_quota>0;
-            ALTER TABLE mailboxes DROP COLUMN previous_quota;")?;
+            ALTER TABLE mailboxes DROP COLUMN previous_quota;",
+        )?;
     }
     if found < 6 {
-        tx.execute_batch("ALTER TABLE mailboxes ADD COLUMN keep_copy INTEGER NOT NULL DEFAULT 1;
-            ALTER TABLE outbox ADD COLUMN queue_only INTEGER NOT NULL DEFAULT 0;")?;
+        tx.execute_batch(
+            "ALTER TABLE mailboxes ADD COLUMN keep_copy INTEGER NOT NULL DEFAULT 1;
+            ALTER TABLE outbox ADD COLUMN queue_only INTEGER NOT NULL DEFAULT 0;",
+        )?;
     }
     tx.pragma_update(None, "user_version", VERSION)?;
     tx.commit()?;
@@ -131,18 +135,28 @@ pub fn migrate(c: &mut Connection, db: &Path) -> Result<(), StoreError> {
 fn backup_v1(db: &Path) -> Result<(), StoreError> {
     let mut backup = db.with_extension("db.v1.bak");
     if backup.exists() {
-        let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         backup = db.with_extension(format!("db.v1.{secs}.bak"));
     }
     let tmp = db.with_extension("db.v1.bak.tmp");
     // VACUUM INTO accepts an empty file, which keeps the mode set here.
-    OpenOptions::new().create(true).write(true).truncate(true).mode(0o600).open(&tmp)?;
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)?;
     let src = Connection::open(db)?;
     src.execute("VACUUM INTO ?", [tmp.to_string_lossy()])?;
     drop(src);
     File::open(&tmp)?.sync_all()?;
     fs::rename(&tmp, &backup)?;
-    let dir = db.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let dir = db
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     File::open(dir)?.sync_all()?;
     Ok(())
 }

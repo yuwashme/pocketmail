@@ -17,7 +17,10 @@ pub(crate) fn astring(out: &mut Vec<u8>, s: &[u8]) {
 
 /// A quoted string when it is short 7-bit text without CR, LF or NUL, otherwise a literal.
 pub(crate) fn string(out: &mut Vec<u8>, s: &[u8]) {
-    if s.len() <= 1024 && s.iter().all(|&b| b != 0 && b != b'\r' && b != b'\n' && b < 0x80) {
+    if s.len() <= 1024
+        && s.iter()
+            .all(|&b| b != 0 && b != b'\r' && b != b'\n' && b < 0x80)
+    {
         out.push(b'"');
         for &b in s {
             if b == b'"' || b == b'\\' {

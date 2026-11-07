@@ -14,7 +14,10 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use browser::{COOKIE, FORM, Resp, SetCookie, Web, css_path, csrf_token, form_body, login_fields, password_fields, request};
+use browser::{
+    COOKIE, FORM, Resp, SetCookie, Web, csrf_token, css_path, form_body, login_fields,
+    password_fields, request,
+};
 use net::{Pki, client_tls};
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -36,15 +39,23 @@ impl Serve {
     /// `start` in `tmp`, whose `data` dir may already hold accounts.
     fn start_in(tmp: tempfile::TempDir, tls: Option<&Pki>, env: &[(&str, &str)]) -> Serve {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_synology-mail-server"));
-        cmd.arg("serve").env_clear().env("SSM_DATA_DIR", tmp.path().join("data"));
+        cmd.arg("serve")
+            .env_clear()
+            .env("SSM_DATA_DIR", tmp.path().join("data"));
         if let Some(pki) = tls {
             let (cert, key) = (tmp.path().join("cert.pem"), tmp.path().join("key.pem"));
             std::fs::write(&cert, &pki.cert_pem).unwrap();
             std::fs::write(&key, &pki.key_pem).unwrap();
-            cmd.env("SSM_TLS_CERT", cert).env("SSM_TLS_KEY", key).env("SSM_IMAP_LISTEN", "127.0.0.1:0");
+            cmd.env("SSM_TLS_CERT", cert)
+                .env("SSM_TLS_KEY", key)
+                .env("SSM_IMAP_LISTEN", "127.0.0.1:0");
         }
         cmd.envs(env.iter().copied());
-        let mut child = cmd.stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut child = cmd
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
         let stderr = child.stderr.take().unwrap();
         let (tx, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -54,7 +65,12 @@ impl Serve {
                 }
             }
         });
-        Serve { _tmp: tmp, child, lines, seen: Vec::new() }
+        Serve {
+            _tmp: tmp,
+            child,
+            lines,
+            seen: Vec::new(),
+        }
     }
 
     /// The first log line containing `pat`, waiting up to WAIT.
@@ -106,14 +122,23 @@ impl Drop for Serve {
 
 /// The address in a "<name>: listening on <addr> ..." line.
 fn listening_addr(line: &str) -> SocketAddr {
-    let rest = line.split("listening on ").nth(1).unwrap_or_else(|| panic!("no address in {line:?}"));
-    rest.split_whitespace().next().unwrap().parse().unwrap_or_else(|_| panic!("no address in {line:?}"))
+    let rest = line
+        .split("listening on ")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no address in {line:?}"));
+    rest.split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap_or_else(|_| panic!("no address in {line:?}"))
 }
 
 #[test]
 fn serve_without_tls_logs_web_off() {
     let mut s = Serve::start(None, &[]);
-    let line = s.wait_for("web: off").unwrap_or_else(|| panic!("no \"web: off\" warning in:\n{}", s.log()));
+    let line = s
+        .wait_for("web: off")
+        .unwrap_or_else(|| panic!("no \"web: off\" warning in:\n{}", s.log()));
     assert!(line.contains(" WARN "), "a warning: {line}");
     s.settle(Duration::from_millis(300));
     assert!(!s.log().contains("web: listening"), "{}", s.log());
@@ -124,10 +149,22 @@ fn serve_without_tls_logs_web_off() {
 fn web_listen_off_starts_no_listener() {
     let pki = Pki::local();
     let mut s = Serve::start(Some(&pki), &[("SSM_WEB_LISTEN", "off")]);
-    assert!(s.wait_for("imap: listening on").is_some(), "IMAP starts:\n{}", s.log());
-    assert!(s.wait_for("web: off").is_some(), "the log says the web UI is off:\n{}", s.log());
+    assert!(
+        s.wait_for("imap: listening on").is_some(),
+        "IMAP starts:\n{}",
+        s.log()
+    );
+    assert!(
+        s.wait_for("web: off").is_some(),
+        "the log says the web UI is off:\n{}",
+        s.log()
+    );
     s.settle(Duration::from_millis(500));
-    assert!(!s.log().contains("web: listening"), "SSM_WEB_LISTEN=off starts no web listener:\n{}", s.log());
+    assert!(
+        !s.log().contains("web: listening"),
+        "SSM_WEB_LISTEN=off starts no web listener:\n{}",
+        s.log()
+    );
     assert!(s.running(), "{}", s.log());
 }
 
@@ -135,13 +172,27 @@ fn web_listen_off_starts_no_listener() {
 async fn serve_starts_web_with_the_imap_certificate() {
     let pki = Pki::local();
     let mut s = Serve::start(Some(&pki), &[("SSM_WEB_LISTEN", "127.0.0.1:0")]);
-    let imap = listening_addr(&s.wait_for("imap: listening on").unwrap_or_else(|| panic!("IMAP starts:\n{}", s.log())));
-    let web = listening_addr(&s.wait_for("web: listening on").unwrap_or_else(|| panic!("web starts:\n{}", s.log())));
+    let imap = listening_addr(
+        &s.wait_for("imap: listening on")
+            .unwrap_or_else(|| panic!("IMAP starts:\n{}", s.log())),
+    );
+    let web = listening_addr(
+        &s.wait_for("web: listening on")
+            .unwrap_or_else(|| panic!("web starts:\n{}", s.log())),
+    );
 
-    let mut w = Web::open(web, client_tls(&pki)).await.expect("TLS to the web listener");
+    let mut w = Web::open(web, client_tls(&pki))
+        .await
+        .expect("TLS to the web listener");
     let w_cert = w.peer_certificate().expect("web certificate");
-    let i = Web::open(imap, client_tls(&pki)).await.expect("TLS to the IMAP listener");
-    assert_eq!(w_cert, i.peer_certificate().expect("IMAP certificate"), "same certificate as IMAP");
+    let i = Web::open(imap, client_tls(&pki))
+        .await
+        .expect("TLS to the IMAP listener");
+    assert_eq!(
+        w_cert,
+        i.peer_certificate().expect("IMAP certificate"),
+        "same certificate as IMAP"
+    );
     assert_eq!(w_cert, pki.cert_der);
 
     let host = format!("localhost:{}", web.port());
@@ -156,17 +207,33 @@ async fn web_bind_failure_warns_and_imap_keeps_serving() {
     let addr = taken.local_addr().unwrap().to_string();
     let pki = Pki::local();
     let mut s = Serve::start(Some(&pki), &[("SSM_WEB_LISTEN", &addr)]);
-    let imap = listening_addr(&s.wait_for("imap: listening on").unwrap_or_else(|| panic!("IMAP starts:\n{}", s.log())));
+    let imap = listening_addr(
+        &s.wait_for("imap: listening on")
+            .unwrap_or_else(|| panic!("IMAP starts:\n{}", s.log())),
+    );
     s.settle(Duration::from_millis(500));
-    assert!(s.running(), "a web port that cannot be bound does not stop serve:\n{}", s.log());
+    assert!(
+        s.running(),
+        "a web port that cannot be bound does not stop serve:\n{}",
+        s.log()
+    );
     let log = s.log();
-    let line = log.lines().find(|l| l.contains("SSM_WEB_LISTEN") && l.contains(&addr)).unwrap_or_else(|| panic!("a line names the setting and address:\n{log}"));
+    let line = log
+        .lines()
+        .find(|l| l.contains("SSM_WEB_LISTEN") && l.contains(&addr))
+        .unwrap_or_else(|| panic!("a line names the setting and address:\n{log}"));
     assert!(line.contains(" WARN "), "a warning: {line}");
     assert!(!log.contains("web: listening"), "{log}");
 
-    let mut c = harness::Client::open(imap, &pki).await.expect("TLS to the IMAP listener");
+    let mut c = harness::Client::open(imap, &pki)
+        .await
+        .expect("TLS to the IMAP listener");
     let greeting = c.read_response().await.expect("IMAP greeting");
-    assert!(greeting.starts_with(b"* OK"), "IMAP keeps serving: {}", String::from_utf8_lossy(&greeting));
+    assert!(
+        greeting.starts_with(b"* OK"),
+        "IMAP keeps serving: {}",
+        String::from_utf8_lossy(&greeting)
+    );
     drop(taken);
 }
 
@@ -181,9 +248,18 @@ fn cli(data: &Path, args: &[&str], stdin: &str) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
     let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// A browser against the real binary: one cookie, one request per connection.
@@ -206,9 +282,21 @@ impl Live<'_> {
             headers.push(format!("Content-Length: {}", body.len()));
         }
         let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
-        let mut w = Web::open(self.addr, client_tls(self.pki)).await.expect("TLS to the web listener");
-        w.write(&request(method, path, &host, &refs, form.unwrap_or_default().as_bytes())).await;
-        let r = tokio::time::timeout(WAIT, w.read_response(false)).await.expect("an answer in time").expect("a response");
+        let mut w = Web::open(self.addr, client_tls(self.pki))
+            .await
+            .expect("TLS to the web listener");
+        w.write(&request(
+            method,
+            path,
+            &host,
+            &refs,
+            form.unwrap_or_default().as_bytes(),
+        ))
+        .await;
+        let r = tokio::time::timeout(WAIT, w.read_response(false))
+            .await
+            .expect("an answer in time")
+            .expect("a response");
         for c in r.all("set-cookie").into_iter().map(SetCookie::parse) {
             if c.name == COOKIE {
                 self.cookie = (!c.clears()).then(|| c.value.clone());
@@ -221,13 +309,25 @@ impl Live<'_> {
         let page = self.send("GET", "/login", None).await;
         assert_eq!(page.status, 200, "GET /login: {}", page.text());
         let (u, p) = login_fields(&page.text());
-        self.send("POST", "/login", Some(form_body(&[(&u, login), (&p, password)]))).await
+        self.send(
+            "POST",
+            "/login",
+            Some(form_body(&[(&u, login), (&p, password)])),
+        )
+        .await
     }
 }
 
 fn sha256(bytes: &[u8]) -> Vec<u8> {
     let suite = rustls::crypto::ring::cipher_suite::TLS13_AES_128_GCM_SHA256;
-    suite.tls13().unwrap().common.hash_provider.hash(bytes).as_ref().to_vec()
+    suite
+        .tls13()
+        .unwrap()
+        .common
+        .hash_provider
+        .hash(bytes)
+        .as_ref()
+        .to_vec()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -246,9 +346,20 @@ async fn changes_logged_without_password_token_hash_or_cookie() {
     cli(&data, &["address", "add", LOGIN, LOGIN], "");
 
     let pki = Pki::local();
-    let mut s = Serve::start_in(tmp, Some(&pki), &[("SSM_WEB_LISTEN", "127.0.0.1:0"), ("SSM_LOG", "debug")]);
-    let addr = listening_addr(&s.wait_for("web: listening on").unwrap_or_else(|| panic!("web starts:\n{}", s.log())));
-    let mut b = Live { addr, pki: &pki, cookie: None };
+    let mut s = Serve::start_in(
+        tmp,
+        Some(&pki),
+        &[("SSM_WEB_LISTEN", "127.0.0.1:0"), ("SSM_LOG", "debug")],
+    );
+    let addr = listening_addr(
+        &s.wait_for("web: listening on")
+            .unwrap_or_else(|| panic!("web starts:\n{}", s.log())),
+    );
+    let mut b = Live {
+        addr,
+        pki: &pki,
+        cookie: None,
+    };
 
     let r = b.sign_in(LOGIN, WRONG).await;
     assert_eq!(r.status, 422, "a failed sign-in: {}", r.text());
@@ -262,23 +373,51 @@ async fn changes_logged_without_password_token_hash_or_cookie() {
     let form = form_body(&[(&cur, OLD), (&new, NEW), (&again, NEW), ("csrf", &csrf)]);
     let r = b.send("POST", "/me/password", Some(form)).await;
     assert_eq!(r.status, 303, "password change: {}", r.text());
-    let r = b.send("POST", "/logout", Some(form_body(&[("csrf", &csrf)]))).await;
+    let r = b
+        .send("POST", "/logout", Some(form_body(&[("csrf", &csrf)])))
+        .await;
     assert_eq!(r.status, 303, "sign-out: {}", r.text());
     s.settle(Duration::from_millis(500));
 
     let log = s.log();
-    let user_lines: Vec<&str> = log.lines().filter(|l| l.contains(&format!("web: {LOGIN:?}"))).collect();
-    assert!(user_lines.len() >= 3, "sign-in, failure, password change and sign-out are logged as `web: {LOGIN:?} …`:\n{log}");
-    assert!(user_lines.iter().any(|l| l.to_ascii_lowercase().contains("password")), "the password change is logged:\n{log}");
+    let user_lines: Vec<&str> = log
+        .lines()
+        .filter(|l| l.contains(&format!("web: {LOGIN:?}")))
+        .collect();
+    assert!(
+        user_lines.len() >= 3,
+        "sign-in, failure, password change and sign-out are logged as `web: {LOGIN:?} …`:\n{log}"
+    );
+    assert!(
+        user_lines
+            .iter()
+            .any(|l| l.to_ascii_lowercase().contains("password")),
+        "the password change is logged:\n{log}"
+    );
 
     let id_hash = sha256(cookie.as_bytes());
-    let mut secrets = vec![OLD.to_string(), NEW.to_string(), WRONG.to_string(), cookie.clone(), csrf.clone(), hex(&id_hash), "$argon2".to_string()];
-    if let Ok(raw) = (0..cookie.len()).step_by(2).map(|i| u8::from_str_radix(&cookie[i..i + 2], 16)).collect::<Result<Vec<u8>, _>>() {
+    let mut secrets = vec![
+        OLD.to_string(),
+        NEW.to_string(),
+        WRONG.to_string(),
+        cookie.clone(),
+        csrf.clone(),
+        hex(&id_hash),
+        "$argon2".to_string(),
+    ];
+    if let Ok(raw) = (0..cookie.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&cookie[i..i + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()
+    {
         secrets.push(hex(&sha256(&raw)));
     }
     let log_lower = log.to_ascii_lowercase();
     for secret in secrets {
-        assert!(!log_lower.contains(&secret.to_ascii_lowercase()), "the log holds {secret:?}:\n{log}");
+        assert!(
+            !log_lower.contains(&secret.to_ascii_lowercase()),
+            "the log holds {secret:?}:\n{log}"
+        );
     }
 }
 
@@ -286,9 +425,14 @@ impl Live<'_> {
     /// Submit the one form to `action` on `page`: its hidden fields and button, then `fill`.
     async fn submit(&mut self, page: &str, action: &str, fill: &[(&str, &str)]) -> Resp {
         let form = browser::post_form(page, action);
-        let mut body: Vec<(&str, &str)> = form.sent.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let mut body: Vec<(&str, &str)> = form
+            .sent
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         body.extend_from_slice(fill);
-        self.send("POST", &form.action, Some(form_body(&body))).await
+        self.send("POST", &form.action, Some(form_body(&body)))
+            .await
     }
 }
 
@@ -297,12 +441,29 @@ const SETUP_PW: &str = "setup-secret-Passw0rd-1";
 
 /// `serve` on a fresh data dir with debug logging: the web address and the setup link's path.
 fn fresh_serve(pki: &Pki) -> (Serve, SocketAddr, String) {
-    let mut s = Serve::start(Some(pki), &[("SSM_WEB_LISTEN", "127.0.0.1:0"), ("SSM_LOG", "debug")]);
-    let addr = listening_addr(&s.wait_for("web: listening on").unwrap_or_else(|| panic!("web starts:\n{}", s.log())));
-    let line = s.wait_for("web: no admin yet").unwrap_or_else(|| panic!("the setup link is logged:\n{}", s.log()));
+    let mut s = Serve::start(
+        Some(pki),
+        &[("SSM_WEB_LISTEN", "127.0.0.1:0"), ("SSM_LOG", "debug")],
+    );
+    let addr = listening_addr(
+        &s.wait_for("web: listening on")
+            .unwrap_or_else(|| panic!("web starts:\n{}", s.log())),
+    );
+    let line = s
+        .wait_for("web: no admin yet")
+        .unwrap_or_else(|| panic!("the setup link is logged:\n{}", s.log()));
     let at = format!(":{}/setup?t=", addr.port());
-    assert!(line.contains("open https://") && line.contains(&at), "an https link to this port: {line}");
-    let token: String = line.split(&at).nth(1).unwrap().chars().take_while(char::is_ascii_hexdigit).collect();
+    assert!(
+        line.contains("open https://") && line.contains(&at),
+        "an https link to this port: {line}"
+    );
+    let token: String = line
+        .split(&at)
+        .nth(1)
+        .unwrap()
+        .chars()
+        .take_while(char::is_ascii_hexdigit)
+        .collect();
     assert_eq!(token.len(), 32, "128 bits as hex: {line}");
     (s, addr, format!("/setup?t={token}"))
 }
@@ -310,33 +471,70 @@ fn fresh_serve(pki: &Pki) -> (Serve, SocketAddr, String) {
 /// Create the first admin through the setup link; the browser is signed in as it.
 async fn first_admin(b: &mut Live<'_>, path: &str) {
     let page = b.send("GET", path, None).await;
-    assert_eq!(page.status, 200, "the logged link opens the setup page: {}", page.text());
+    assert_eq!(
+        page.status,
+        200,
+        "the logged link opens the setup page: {}",
+        page.text()
+    );
     let forms = browser::post_forms(&page.text(), "/setup");
-    let create = forms.iter().find(|f| f.password_fields().len() == 2).unwrap_or_else(|| panic!("a create-admin form:\n{}", page.text()));
+    let create = forms
+        .iter()
+        .find(|f| f.password_fields().len() == 2)
+        .unwrap_or_else(|| panic!("a create-admin form:\n{}", page.text()));
     let (user, pw) = (create.text_field(), create.password_fields());
-    let mut body: Vec<(&str, &str)> = create.sent.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    body.extend([(user.as_str(), SETUP_ADMIN), (pw[0].as_str(), SETUP_PW), (pw[1].as_str(), SETUP_PW)]);
+    let mut body: Vec<(&str, &str)> = create
+        .sent
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    body.extend([
+        (user.as_str(), SETUP_ADMIN),
+        (pw[0].as_str(), SETUP_PW),
+        (pw[1].as_str(), SETUP_PW),
+    ]);
     let r = b.send("POST", &create.action, Some(form_body(&body))).await;
     assert_eq!(r.status, 303, "the first admin is created: {}", r.text());
-    assert_eq!(r.header("location").map(|l| l.split('?').next().unwrap_or_default()), Some("/accounts"));
+    assert_eq!(
+        r.header("location")
+            .map(|l| l.split('?').next().unwrap_or_default()),
+        Some("/accounts")
+    );
 }
 
 #[tokio::test]
 async fn serve_logs_setup_link_that_works() {
     let pki = Pki::local();
     let (mut s, addr, path) = fresh_serve(&pki);
-    let mut b = Live { addr, pki: &pki, cookie: None };
+    let mut b = Live {
+        addr,
+        pki: &pki,
+        cookie: None,
+    };
     first_admin(&mut b, &path).await;
     let list = b.send("GET", "/accounts", None).await;
-    assert_eq!(list.status, 200, "signed in as the new admin: {}", list.text());
+    assert_eq!(
+        list.status,
+        200,
+        "signed in as the new admin: {}",
+        list.text()
+    );
     assert!(list.text().contains(SETUP_ADMIN));
-    assert_eq!(b.send("GET", &path, None).await.status, 404, "the link is used up");
+    assert_eq!(
+        b.send("GET", &path, None).await.status,
+        404,
+        "the link is used up"
+    );
     s.settle(Duration::from_millis(500));
 
     let token = browser::setup_token(&path);
     let log = s.log();
     let with_token: Vec<&str> = log.lines().filter(|l| l.contains(token)).collect();
-    assert_eq!(with_token.len(), 1, "the token is logged once, in the setup line, and never again (no query strings):\n{log}");
+    assert_eq!(
+        with_token.len(),
+        1,
+        "the token is logged once, in the setup line, and never again (no query strings):\n{log}"
+    );
     assert!(with_token[0].contains("web: no admin yet"));
     assert!(!log.contains(SETUP_PW), "{log}");
 }
@@ -348,7 +546,11 @@ async fn admin_changes_logged_without_secrets() {
     const PW2: &str = "second-secret-Passw0rd-3";
     let pki = Pki::local();
     let (mut s, addr, path) = fresh_serve(&pki);
-    let mut b = Live { addr, pki: &pki, cookie: None };
+    let mut b = Live {
+        addr,
+        pki: &pki,
+        cookie: None,
+    };
     first_admin(&mut b, &path).await;
     let cookie = b.cookie.clone().expect("a session cookie");
 
@@ -356,12 +558,22 @@ async fn admin_changes_logged_without_secrets() {
     let csrf = csrf_token(&list).expect("a CSRF token on the list");
     let form = browser::post_form(&list, "/accounts");
     let (user, pw) = (form.text_field(), form.password_fields());
-    let r = b.submit(&list, "/accounts", &[(&user, USER), (&pw[0], PW1), (&pw[1], PW1)]).await;
+    let r = b
+        .submit(
+            &list,
+            "/accounts",
+            &[(&user, USER), (&pw[0], PW1), (&pw[1], PW1)],
+        )
+        .await;
     assert_eq!(r.status, 303, "account added: {}", r.text());
 
     let rows = b.send("GET", "/accounts", None).await.text();
     let mut pages = Vec::new();
-    for h in browser::tags(&rows, "a").into_iter().filter_map(|a| a.attr("href").map(str::to_string)).filter(|h| h.starts_with("/account?id=")) {
+    for h in browser::tags(&rows, "a")
+        .into_iter()
+        .filter_map(|a| a.attr("href").map(str::to_string))
+        .filter(|h| h.starts_with("/account?id="))
+    {
         let p = b.send("GET", &h, None).await.text();
         if browser::visible_text(&p).contains(USER) {
             pages.push(p);
@@ -370,16 +582,51 @@ async fn admin_changes_logged_without_secrets() {
     assert_eq!(pages.len(), 1, "one account page shows {USER}:\n{rows}");
     let page = pages.remove(0);
     let pw = browser::post_form(&page, "/account/password").password_fields();
-    assert_eq!(b.submit(&page, "/account/password", &[(&pw[0], PW2), (&pw[1], PW2)]).await.status, 303, "password set");
-    assert_eq!(b.submit(&page, "/account/disable", &[]).await.status, 303, "sign-in blocked");
+    assert_eq!(
+        b.submit(&page, "/account/password", &[(&pw[0], PW2), (&pw[1], PW2)])
+            .await
+            .status,
+        303,
+        "password set"
+    );
+    assert_eq!(
+        b.submit(&page, "/account/disable", &[]).await.status,
+        303,
+        "sign-in blocked"
+    );
     s.settle(Duration::from_millis(500));
 
     let log = s.log();
-    let changes: Vec<&str> = log.lines().filter(|l| l.contains(&format!("web: {SETUP_ADMIN:?}")) && l.contains(&format!("{USER:?}"))).collect();
-    assert!(changes.len() >= 3, "add, password and block are logged as `web: {SETUP_ADMIN:?} <action> {USER:?}`:\n{log}");
+    let changes: Vec<&str> = log
+        .lines()
+        .filter(|l| {
+            l.contains(&format!("web: {SETUP_ADMIN:?}")) && l.contains(&format!("{USER:?}"))
+        })
+        .collect();
+    assert!(
+        changes.len() >= 3,
+        "add, password and block are logged as `web: {SETUP_ADMIN:?} <action> {USER:?}`:\n{log}"
+    );
     let token = browser::setup_token(&path).to_string();
-    let log_lower: String = log.lines().filter(|l| !l.contains("web: no admin yet")).collect::<Vec<_>>().join("\n").to_ascii_lowercase();
-    for secret in [SETUP_PW, PW1, PW2, &cookie, &csrf, &hex(&sha256(cookie.as_bytes())), &token, "$argon2"] {
-        assert!(!log_lower.contains(&secret.to_ascii_lowercase()), "the log holds {secret:?}:\n{log}");
+    let log_lower: String = log
+        .lines()
+        .filter(|l| !l.contains("web: no admin yet"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_ascii_lowercase();
+    for secret in [
+        SETUP_PW,
+        PW1,
+        PW2,
+        &cookie,
+        &csrf,
+        &hex(&sha256(cookie.as_bytes())),
+        &token,
+        "$argon2",
+    ] {
+        assert!(
+            !log_lower.contains(&secret.to_ascii_lowercase()),
+            "the log holds {secret:?}:\n{log}"
+        );
     }
 }
