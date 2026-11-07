@@ -16,6 +16,10 @@ and MOVE are not supported yet. [docs/DEVIATIONS.md](docs/DEVIATIONS.md) lists w
 from the RFCs, [docs/MAIL-STANDARDS-REVIEW.md](docs/MAIL-STANDARDS-REVIEW.md) is a longer review, and
 [tests/mx-lab](tests/mx-lab/README.md) is a standalone MX test lab.
 
+## Preview downloads
+
+[Download the v0.1.7-4 installer for Synology RTD1296](https://github.com/yuwashme/pocketmail/releases/download/v0.1.7/pocketmail-rtd1296-0.1.7-4.spk) · [Installation guide](https://pocketmail.app/setup) · [All releases](https://github.com/yuwashme/pocketmail/releases)
+
 ## Build
 
     cargo build --locked --release
