@@ -1,0 +1,25 @@
+From: Carol <carol@example.test>
+Sender: Secretary <sec@example.test>
+To: test@example.com
+Subject: Report attached
+Date: Wed, 4 Mar 2026 11:30:00 -0800
+Message-ID: <mixed-3@example.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=mixed-b
+
+--mixed-b
+Content-Type: text/plain; charset=us-ascii
+
+See the attachment.
+
+--mixed-b
+Content-Type: application/pdf; name="report.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="report.pdf"
+Content-Description: Quarterly numbers
+Content-ID: <part2@example.test>
+
+JVBERi0xLjQKJcfsj6IKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoKdHJhaWxlcgo8
+PC9Sb290IDEgMCBSPj4KJSVFT0YK
+
+--mixed-b--

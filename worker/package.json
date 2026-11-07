@@ -1,0 +1,1 @@
+{ "name": "ssm-inbound-worker", "private": true, "type": "module", "scripts": { "test": "node --test" } }

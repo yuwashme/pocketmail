@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+umask 077
+mkdir -p "${SYNOPKG_PKGVAR:?}/store" "/var/packages/${SYNOPKG_PKGNAME:?}/etc/private"

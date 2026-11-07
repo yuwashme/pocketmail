@@ -1,0 +1,11 @@
+name = "ssm-outbound"
+main = "index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+ALLOWED_SENDER = "sender@example.org"
+
+[[send_email]]
+name = "SEND"

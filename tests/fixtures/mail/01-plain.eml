@@ -1,0 +1,15 @@
+From: Alice Example <alice@example.test>
+To: Test User <test@example.com>
+Reply-To: replies@example.test
+Subject: Plain hello
+Date: Mon, 2 Mar 2026 09:15:00 +0100
+Message-ID: <plain-1@example.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Hello Test,
+
+this is a plain ASCII message.
+--
+Alice

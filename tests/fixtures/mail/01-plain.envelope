@@ -1,0 +1,6 @@
+("Mon, 2 Mar 2026 09:15:00 +0100" "Plain hello"
+ (("Alice Example" NIL "alice" "example.test"))
+ (("Alice Example" NIL "alice" "example.test"))
+ ((NIL NIL "replies" "example.test"))
+ (("Test User" NIL "test" "example.com"))
+ NIL NIL NIL "<plain-1@example.test>")

@@ -1,0 +1,13 @@
+(("TEXT" "PLAIN" ("CHARSET" "us-ascii") NIL NIL "7BIT" 18 1 NIL NIL NIL NIL)
+ ("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 376
+  ("Wed, 4 Mar 2026 20:00:00 +0000" "Original"
+   (("Eve" NIL "eve" "example.com"))
+   (("Eve" NIL "eve" "example.com"))
+   (("Eve" NIL "eve" "example.com"))
+   ((NIL NIL "dave" "example.net"))
+   NIL NIL NIL "<orig-0@example.com>")
+  (("TEXT" "PLAIN" ("CHARSET" "us-ascii") NIL NIL "7BIT" 14 1 NIL NIL NIL NIL)
+   ("TEXT" "HTML" ("CHARSET" "us-ascii") NIL NIL "7BIT" 20 1 NIL NIL NIL NIL)
+   "ALTERNATIVE" ("BOUNDARY" "inner") NIL NIL NIL)
+  19 NIL NIL NIL NIL)
+ "MIXED" ("BOUNDARY" "outer") NIL NIL NIL)

@@ -1,0 +1,4 @@
+(("TEXT" "PLAIN" ("CHARSET" "us-ascii") NIL NIL "7BIT" 21 1 NIL NIL NIL NIL)
+ ("APPLICATION" "PDF" ("NAME" "report.pdf") "<part2@example.test>" "Quarterly numbers" "BASE64" 108
+  NIL ("ATTACHMENT" ("FILENAME" "report.pdf")) NIL NIL)
+ "MIXED" ("BOUNDARY" "mixed-b") NIL NIL NIL)

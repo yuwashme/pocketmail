@@ -1,0 +1,15 @@
+From: Grace Hopper
+ <grace@example.test>
+To: one@example.test,
+ two@example.test,
+	three@example.test
+Subject: This is a very long subject line that has been folded
+ across two lines by the sender
+Date: Sun, 8 Mar 2026 08:08:08 +0000
+Message-ID:
+ <folded-8@example.test>
+X-Long-Header: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+Folded headers.

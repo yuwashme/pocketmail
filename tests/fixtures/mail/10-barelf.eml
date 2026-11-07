@@ -1,0 +1,8 @@
+From: Ivan <ivan@example.test>
+To: test@example.com
+Subject: Bare LF
+Date: Tue, 10 Mar 2026 10:10:10 +0000
+Message-ID: <lf-10@example.test>
+
+line one
+line two

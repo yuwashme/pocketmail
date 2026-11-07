@@ -1,0 +1,9 @@
+name = "ssm-inbound"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+# KV namespace id is filled in after `wrangler kv namespace create INBOX`.
+# [[kv_namespaces]]
+# binding = "INBOX"
+# id = "..."

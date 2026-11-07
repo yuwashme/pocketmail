@@ -1,0 +1,11 @@
+From: Hana <hana@example.si>
+To: test@example.com
+Subject: 8-bit body
+Date: Mon, 9 Mar 2026 09:09:09 +0100
+Message-ID: <8bit-9@example.si>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Čestitke! Žaba in šđčćž.
+Druga vrstica.

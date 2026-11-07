@@ -1,0 +1,8 @@
+[Unit]
+Description=Pocketmail
+
+[Service]
+Type=simple
+UMask=0077
+ExecStart=/var/packages/pocketmail/target/bin/serve
+TimeoutStopSec=30

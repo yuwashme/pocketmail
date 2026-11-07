@@ -1,0 +1,7 @@
+("Sun, 8 Mar 2026 08:08:08 +0000"
+ "This is a very long subject line that has been folded across two lines by the sender"
+ (("Grace Hopper" NIL "grace" "example.test"))
+ (("Grace Hopper" NIL "grace" "example.test"))
+ (("Grace Hopper" NIL "grace" "example.test"))
+ ((NIL NIL "one" "example.test") (NIL NIL "two" "example.test") (NIL NIL "three" "example.test"))
+ NIL NIL NIL "<folded-8@example.test>")

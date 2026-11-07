@@ -1,0 +1,6 @@
+("Wed, 4 Mar 2026 11:30:00 -0800" "Report attached"
+ (("Carol" NIL "carol" "example.test"))
+ (("Secretary" NIL "sec" "example.test"))
+ (("Carol" NIL "carol" "example.test"))
+ ((NIL NIL "test" "example.com"))
+ NIL NIL NIL "<mixed-3@example.test>")

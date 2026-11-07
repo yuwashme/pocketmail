@@ -1,0 +1,38 @@
+From: Dave <dave@example.net>
+To: test@example.com
+Subject: Fwd: Original
+Date: Thu, 5 Mar 2026 08:00:00 +0000
+Message-ID: <fwd-4@example.net>
+In-Reply-To: <orig-0@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer"
+
+--outer
+Content-Type: text/plain; charset=us-ascii
+
+Forwarding this.
+
+--outer
+Content-Type: message/rfc822
+
+From: Eve <eve@example.com>
+To: dave@example.net
+Subject: Original
+Date: Wed, 4 Mar 2026 20:00:00 +0000
+Message-ID: <orig-0@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="inner"
+
+--inner
+Content-Type: text/plain; charset=us-ascii
+
+Inner plain.
+
+--inner
+Content-Type: text/html; charset=us-ascii
+
+<b>Inner html.</b>
+
+--inner--
+
+--outer--

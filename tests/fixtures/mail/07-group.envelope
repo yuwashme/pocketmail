@@ -1,0 +1,8 @@
+("Sat, 7 Mar 2026 07:07:07 +0000" "Group syntax"
+ (("Frank" NIL "frank" "example.test"))
+ (("Frank" NIL "frank" "example.test"))
+ (("Frank" NIL "frank" "example.test"))
+ ((NIL NIL "undisclosed-recipients" NIL) (NIL NIL NIL NIL))
+ ((NIL NIL "Friends" NIL) (NIL NIL "anna" "example.test") ("Ben B." NIL "ben" "example.test") (NIL NIL NIL NIL))
+ ((NIL NIL "test" "example.com"))
+ NIL "<group-7@example.test>")

@@ -1,0 +1,8 @@
+#!/bin/sh
+unit=pkguser-pocketmail.service
+case "$1" in
+    start|stop) exec synosystemctl "$1" "$unit" ;;
+    status) systemctl --user is-active --quiet "$unit" && exit 0; exit 3 ;;
+    prestart|prestop) exit 0 ;;
+    *) exit 1 ;;
+esac

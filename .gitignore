@@ -1,0 +1,17 @@
+target/
+.DS_Store
+*.env
+
+.wrangler/
+
+# Local exports, runtime data and operator-only configuration.
+/output/
+outbound.curl
+.dev.vars*
+*.pem
+/bench-results/
+
+/data/
+*.db*
+*.key
+node_modules/

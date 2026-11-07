@@ -1,0 +1,24 @@
+From: Bob <bob@example.org>
+To: test@example.com
+Cc: "Doe, Jane" <jane@example.org>, carl@example.org
+Subject: Alternative parts
+Date: Tue, 3 Mar 2026 10:00:00 +0000
+Message-ID: <alt-2@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-boundary"
+
+This is a multi-part message in MIME format.
+
+--alt-boundary
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Plain version.
+
+--alt-boundary
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<p>HTML version.</p>
+
+--alt-boundary--

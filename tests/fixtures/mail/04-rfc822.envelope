@@ -1,0 +1,6 @@
+("Thu, 5 Mar 2026 08:00:00 +0000" "Fwd: Original"
+ (("Dave" NIL "dave" "example.net"))
+ (("Dave" NIL "dave" "example.net"))
+ (("Dave" NIL "dave" "example.net"))
+ ((NIL NIL "test" "example.com"))
+ NIL NIL "<orig-0@example.com>" "<fwd-4@example.net>")

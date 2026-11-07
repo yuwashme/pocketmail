@@ -1,0 +1,6 @@
+("Tue, 10 Mar 2026 10:10:10 +0000" "Bare LF"
+ (("Ivan" NIL "ivan" "example.test"))
+ (("Ivan" NIL "ivan" "example.test"))
+ (("Ivan" NIL "ivan" "example.test"))
+ ((NIL NIL "test" "example.com"))
+ NIL NIL NIL "<lf-10@example.test>")

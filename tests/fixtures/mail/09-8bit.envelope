@@ -1,0 +1,6 @@
+("Mon, 9 Mar 2026 09:09:09 +0100" "8-bit body"
+ (("Hana" NIL "hana" "example.si"))
+ (("Hana" NIL "hana" "example.si"))
+ (("Hana" NIL "hana" "example.si"))
+ ((NIL NIL "test" "example.com"))
+ NIL NIL NIL "<8bit-9@example.si>")

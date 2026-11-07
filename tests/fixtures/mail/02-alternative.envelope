@@ -1,0 +1,7 @@
+("Tue, 3 Mar 2026 10:00:00 +0000" "Alternative parts"
+ (("Bob" NIL "bob" "example.org"))
+ (("Bob" NIL "bob" "example.org"))
+ (("Bob" NIL "bob" "example.org"))
+ ((NIL NIL "test" "example.com"))
+ (("Doe, Jane" NIL "jane" "example.org") (NIL NIL "carl" "example.org"))
+ NIL NIL "<alt-2@example.org>")
